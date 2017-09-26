@@ -55,10 +55,13 @@ def define_G(input_nc, output_nc, ngf, which_model_netG, norm='batch', use_dropo
 
 
 def define_D(input_nc, ndf, which_model_netD,
-             n_layers_D=3, norm='batch', use_sigmoid=False, gpu_ids=[]):
+             n_layers_D=3, norm='batch', use_sigmoid=False, n_classes=None, gpu_ids=[]):
     netD = None
     use_gpu = len(gpu_ids) > 0
     norm_layer = get_norm_layer(norm_type=norm)
+
+    if n_classes is not None:
+        input_nc += n_classes
 
     if use_gpu:
         assert(torch.cuda.is_available())
@@ -93,9 +96,9 @@ def print_network(net):
 # but it abstracts away the need to create the target label tensor
 # that has the same size as the input
 class GANLoss(nn.Module):
-    def __init__(self, use_lsgan=True, num_classes=2, tensor=torch.FloatTensor):
+    def __init__(self, use_lsgan=True, n_classes=2, tensor=torch.FloatTensor):
         super(GANLoss, self).__init__()
-        self.label_vars = [None] * (num_classes*2)
+        self.label_vars = [None] * (n_classes*2)
         self.Tensor = tensor
         if use_lsgan:
             self.loss = nn.MSELoss()
@@ -304,7 +307,8 @@ class UnetSkipConnectionBlock(nn.Module):
 class NLayerDiscriminator(nn.Module):
     def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
         super(NLayerDiscriminator, self).__init__()
-        self.gpu_ids = gpu_ids
+        self.input_nc, self.gpu_ids = input_nc, gpu_ids
+
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
@@ -345,8 +349,18 @@ class NLayerDiscriminator(nn.Module):
 
         self.model = nn.Sequential(*sequence)
 
-    def forward(self, input):
-        if len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor):
+    def forward(self, input, domain=None):
+        use_gpu = len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor)
+
+        if domain is not None:
+            chw = input.size()
+            context_size = (self.input_nc - chw[0],) + chw[1:]
+            tensor = torch.cuda.FloatTensor if use_gpu else torch.FloatTensor
+            context_channels = tensor(context_size).fill_(-1.0)
+            context_channels[domain] = 1.0
+            input = torch.cat([input, context_channels])
+
+        if use_gpu:
             return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
         else:
             return self.model(input)

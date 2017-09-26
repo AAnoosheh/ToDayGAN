@@ -10,7 +10,9 @@ from .base_model import BaseModel
 from . import networks
 import sys
 
-DA_FAKE, DB_FAKE, DA_REAL, DB_REAL = [0, 1, 2, 3]
+class_labels = (0, 1, 2, 3)
+n_classes = len(class_labels) // 2
+DA_FAKE, DB_FAKE, DA_REAL, DB_REAL = class_labels
 
 class CycleGANModel(BaseModel):
     def name(self):
@@ -32,12 +34,12 @@ class CycleGANModel(BaseModel):
                                         opt.ngf, opt.which_model_netG, opt.norm, not opt.no_dropout, self.gpu_ids)
         self.netG_B = networks.define_G(opt.output_nc, opt.input_nc,
                                         opt.ngf, opt.which_model_netG, opt.norm, not opt.no_dropout, self.gpu_ids)
-
         if self.isTrain:
             use_sigmoid = opt.no_lsgan
             self.netD = networks.define_D(opt.output_nc, opt.ndf,
                                           opt.which_model_netD,
-                                          opt.n_layers_D, opt.norm, use_sigmoid, self.gpu_ids)
+                                          opt.n_layers_D, opt.norm, use_sigmoid, n_classes, self.gpu_ids)
+
         if not self.isTrain or opt.continue_train:
             which_epoch = opt.which_epoch
             self.load_network(self.netG_A, 'G_A', which_epoch)
@@ -50,7 +52,7 @@ class CycleGANModel(BaseModel):
             self.fake_A_pool = ImagePool(opt.pool_size)
             self.fake_B_pool = ImagePool(opt.pool_size)
             # define loss functions
-            self.criterionGAN = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
+            self.criterionGAN = networks.GANLoss(use_lsgan=not opt.no_lsgan, n_classes=n_classes, tensor=self.Tensor)
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
             self.criterionDEX = torch.nn.L1Loss()
@@ -94,10 +96,10 @@ class CycleGANModel(BaseModel):
 
     def backward_D_basic(self, real, fake, label_real, label_fake):
         # Real
-        pred_real = self.netD.forward(real)
+        pred_real = self.netD.forward(real, domain=label_fake)  # Hack: fake labels happen to be first in order
         loss_D_real = self.criterionGAN(pred_real, label_real)
         # Fake
-        pred_fake = self.netD.forward(fake.detach())
+        pred_fake = self.netD.forward(fake.detach(), domain=label_fake)
         loss_D_fake = self.criterionGAN(pred_fake, label_fake)
         # Combined loss
         loss_D = (loss_D_real + loss_D_fake) * 0.5
@@ -132,11 +134,11 @@ class CycleGANModel(BaseModel):
         # GAN loss
         # D_A(G_A(A))
         self.fake_B = self.netG_A.forward(self.real_A)
-        pred_fake = self.netD.forward(self.fake_B)
+        pred_fake = self.netD.forward(self.fake_B, domain=DB_FAKE)
         self.loss_G_A = self.criterionGAN(pred_fake, DA_REAL)
         # D_B(G_B(B))
         self.fake_A = self.netG_B.forward(self.real_B)
-        pred_fake = self.netD.forward(self.fake_A)
+        pred_fake = self.netD.forward(self.fake_A, domain=DA_FAKE)
         self.loss_G_B = self.criterionGAN(pred_fake, DB_REAL)
         # Forward cycle loss
         self.rec_A = self.netG_B.forward(self.fake_B)
