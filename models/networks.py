@@ -55,20 +55,17 @@ def define_G(input_nc, output_nc, ngf, which_model_netG, norm='batch', use_dropo
 
 
 def define_D(input_nc, ndf, which_model_netD,
-             n_layers_D=3, norm='batch', use_sigmoid=False, n_classes=None, gpu_ids=[]):
+             n_layers_D=3, norm='batch', use_sigmoid=False, n_classes=0, gpu_ids=[]):
     netD = None
     use_gpu = len(gpu_ids) > 0
     norm_layer = get_norm_layer(norm_type=norm)
 
-    if n_classes is not None:
-        input_nc += n_classes
-
     if use_gpu:
         assert(torch.cuda.is_available())
     if which_model_netD == 'basic':
-        netD = NLayerDiscriminator(input_nc, ndf, n_layers=3, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
+        netD = NLayerDiscriminator(input_nc, ndf, n_layers=3, n_classes=n_classes, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
     elif which_model_netD == 'n_layers':
-        netD = NLayerDiscriminator(input_nc, ndf, n_layers_D, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
+        netD = NLayerDiscriminator(input_nc, ndf, n_layers_D, n_classes=n_classes, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
     else:
         raise NotImplementedError('Discriminator model name [%s] is not recognized' %
                                   which_model_netD)
@@ -98,24 +95,31 @@ def print_network(net):
 class GANLoss(nn.Module):
     def __init__(self, use_lsgan=True, n_classes=2, tensor=torch.FloatTensor):
         super(GANLoss, self).__init__()
-        self.label_vars = [None] * (n_classes*2)
+        self.n_classes = n_classes
         self.Tensor = tensor
+        self.label_var = None
+        self.label_mask = None
         if use_lsgan:
             self.loss = nn.MSELoss()
         else:
             self.loss = nn.BCELoss()
 
-    def get_target_tensor(self, input, target_class):
-        label_var = self.label_vars[target_class]
+    def prepare_target_tensor(self, input, target_class, is_real):
+        if self.label_var is None or self.label_var.numel() != input.numel():
+            label_size = (self.n_classes,) + input.size()
+            self.label_var = Variable(self.Tensor(label_size), requires_grad=False)
+            self.label_mask = self.label_var.clone()
 
-        if label_var is None or label_var.numel() != input.numel():
-            label_tensor = self.Tensor(input.size()).fill_( float(target_class) )
-            self.label_vars[target_class] = Variable(label_tensor, requires_grad=False)
-        return self.label_vars[target_class]
+        self.label_var.data.fill_(0.0)
+        self.label_mask.data.fill_(0.0)
+        if is_real:
+            self.label_var.data[target_class] = 1.0
+        self.label_mask.data[target_class] = 1.0
 
-    def __call__(self, input, target_class):
-        target_tensor = self.get_target_tensor(input, target_class)
-        return self.loss(input, target_tensor)
+    def __call__(self, input, target_class, is_real):
+        self.prepare_target_tensor(input, target_class, is_real)
+        input_masked = input * self.label_mask  # ignore loss for other classes
+        return self.loss(input_masked, self.label_var)
 
 
 # Defines the generator that consists of Resnet blocks between a few
@@ -305,9 +309,10 @@ class UnetSkipConnectionBlock(nn.Module):
 
 # Defines the PatchGAN discriminator with the specified arguments.
 class NLayerDiscriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
+    def __init__(self, input_nc, ndf=64, n_layers=3, n_classes=0, norm_layer=nn.BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
         super(NLayerDiscriminator, self).__init__()
-        self.input_nc, self.gpu_ids = input_nc, gpu_ids
+        self.input_nc = input_nc + n_classes
+        self.gpu_ids, self.n_classes = gpu_ids, n_classes
 
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
@@ -342,7 +347,8 @@ class NLayerDiscriminator(nn.Module):
             nn.LeakyReLU(0.2, True)
         ]
 
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
+        output_nc = max(1, self.n_classes)
+        sequence += [nn.Conv2d(ndf * nf_mult, output_nc, kernel_size=kw, stride=1, padding=padw)]
 
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
@@ -354,7 +360,7 @@ class NLayerDiscriminator(nn.Module):
 
         if domain is not None:
             chw = input.size()
-            context_size = (self.input_nc - chw[0],) + chw[1:]
+            context_size = (self.n_classes,) + chw[1:]
             tensor = torch.cuda.FloatTensor if use_gpu else torch.FloatTensor
             context_channels = tensor(context_size).fill_(-1.0)
             context_channels[domain] = 1.0

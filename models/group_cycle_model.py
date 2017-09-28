@@ -10,9 +10,8 @@ from .base_model import BaseModel
 from . import networks
 import sys
 
-class_labels = (0, 1, 2, 3)
-n_classes = len(class_labels) // 2
-DA_FAKE, DB_FAKE, DA_REAL, DB_REAL = class_labels
+n_classes = 2
+DA, DB = 0, 1
 
 class CycleGANModel(BaseModel):
     def name(self):
@@ -94,13 +93,13 @@ class CycleGANModel(BaseModel):
     def get_image_paths(self):
         return self.image_paths
 
-    def backward_D_basic(self, real, fake, label_real, label_fake):
+    def backward_D_basic(self, real, fake, domain):
         # Real
-        pred_real = self.netD.forward(real, domain=label_fake)  # Hack: fake labels happen to be first in order
-        loss_D_real = self.criterionGAN(pred_real, label_real)
+        pred_real = self.netD.forward(real, domain=domain)
+        loss_D_real = self.criterionGAN(pred_real, domain, True)
         # Fake
-        pred_fake = self.netD.forward(fake.detach(), domain=label_fake)
-        loss_D_fake = self.criterionGAN(pred_fake, label_fake)
+        pred_fake = self.netD.forward(fake.detach(), domain=domain)
+        loss_D_fake = self.criterionGAN(pred_fake, domain, False)
         # Combined loss
         loss_D = (loss_D_real + loss_D_fake) * 0.5
         # backward
@@ -109,11 +108,11 @@ class CycleGANModel(BaseModel):
 
     def backward_D_A(self):
         fake_B = self.fake_B_pool.query(self.fake_B)
-        self.loss_D_A = self.backward_D_basic(self.real_B, fake_B, DA_REAL, DA_FAKE)
+        self.loss_D_A = self.backward_D_basic(self.real_B, fake_B, DA)
 
     def backward_D_B(self):
         fake_A = self.fake_A_pool.query(self.fake_A)
-        self.loss_D_B = self.backward_D_basic(self.real_A, fake_A, DB_REAL, DB_FAKE)
+        self.loss_D_B = self.backward_D_basic(self.real_A, fake_A, DB)
 
     def backward_G(self):
         lambda_idt = self.opt.identity
@@ -134,12 +133,12 @@ class CycleGANModel(BaseModel):
         # GAN loss
         # D_A(G_A(A))
         self.fake_B = self.netG_A.forward(self.real_A)
-        pred_fake = self.netD.forward(self.fake_B, domain=DB_FAKE)
-        self.loss_G_A = self.criterionGAN(pred_fake, DA_REAL)
+        pred_fake = self.netD.forward(self.fake_B, domain=DB)
+        self.loss_G_A = self.criterionGAN(pred_fake, DA, True)
         # D_B(G_B(B))
         self.fake_A = self.netG_B.forward(self.real_B)
-        pred_fake = self.netD.forward(self.fake_A, domain=DA_FAKE)
-        self.loss_G_B = self.criterionGAN(pred_fake, DB_REAL)
+        pred_fake = self.netD.forward(self.fake_A, domain=DA)
+        self.loss_G_B = self.criterionGAN(pred_fake, DB, True)
         # Forward cycle loss
         self.rec_A = self.netG_B.forward(self.fake_B)
         self.loss_cycle_A = self.criterionCycle(self.rec_A, self.real_A) * lambda_A
