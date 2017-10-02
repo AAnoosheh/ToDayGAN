@@ -93,9 +93,8 @@ def print_network(net):
 # but it abstracts away the need to create the target label tensor
 # that has the same size as the input
 class GANLoss(nn.Module):
-    def __init__(self, use_lsgan=True, n_classes=2, tensor=torch.FloatTensor):
+    def __init__(self, use_lsgan=True, tensor=torch.FloatTensor):
         super(GANLoss, self).__init__()
-        self.n_classes = n_classes
         self.Tensor = tensor
         self.label_var = None
         self.label_mask = None
@@ -106,8 +105,7 @@ class GANLoss(nn.Module):
 
     def prepare_target_tensor(self, input, target_class, is_real):
         if self.label_var is None or self.label_var.numel() != input.numel():
-            label_size = (self.n_classes,) + input.size()
-            self.label_var = Variable(self.Tensor(label_size), requires_grad=False)
+            self.label_var = Variable(self.Tensor(input.size()), requires_grad=False)
             self.label_mask = self.label_var.clone()
 
         self.label_var.data.fill_(0.0)
@@ -359,12 +357,11 @@ class NLayerDiscriminator(nn.Module):
         use_gpu = len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor)
 
         if domain is not None:
-            chw = input.size()
-            context_size = (self.n_classes,) + chw[1:]
             tensor = torch.cuda.FloatTensor if use_gpu else torch.FloatTensor
-            context_channels = tensor(context_size).fill_(-1.0)
+            context_size = (self.n_classes,) + input.size()[1:]
+            context_channels = tensor(*context_size).fill_(-1.0)
             context_channels[domain] = 1.0
-            input = torch.cat([input, context_channels])
+            input = torch.cat([input, Variable(context_channels)])
 
         if use_gpu:
             return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
