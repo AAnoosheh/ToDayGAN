@@ -111,8 +111,8 @@ class GANLoss(nn.Module):
         self.label_var.data.fill_(0.0)
         self.label_mask.data.fill_(0.0)
         if is_real:
-            self.label_var.data[target_class] = 1.0
-        self.label_mask.data[target_class] = 1.0
+            self.label_var.data[:,target_class,:,:] = 1.0
+        self.label_mask.data[:,target_class,:,:] = 1.0
 
     def __call__(self, input, target_class, is_real):
         self.prepare_target_tensor(input, target_class, is_real)
@@ -348,35 +348,34 @@ class NLayerDiscriminator(nn.Module):
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
 
-        self.model = SeqContextConv(n_classes, *sequence)
+        self.model = SequentialContext(n_classes, *sequence)
 
     def forward(self, input, domain=None):
         if len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor):
             return nn.parallel.data_parallel(self.model, (input, domain), self.gpu_ids)
-        return self.model((input, domain))
+        return self.model(input, domain)
 
-class SeqContextConv(nn.Sequential):
+class SequentialContext(nn.Sequential):
     def __init__(self, n_classes, *args):
-        super(SequentialWithContext, self).__init__(args)
+        super(SequentialContext, self).__init__(*args)
         self.n_classes = n_classes
         self.context_var = None
 
     def prepare_context(self, input, domain):
-        if self.context_var is None or self.context_var.size()[1:] != input.size()[1:]:
-            tensor = torch.cuda.FloatTensor if isinstance(input.data, torch.cuda.FloatTensor)
+        if self.context_var is None or self.context_var.size()[-2:] != input.size()[-2:]:
+            tensor = torch.cuda.FloatTensor if isinstance(input.data, torch.cuda.FloatTensor) \
                      else torch.FloatTensor
-            context_size = (self.n_classes,) + input.size()[1:]
+            context_size = (1, self.n_classes) + input.size()[-2:]
             self.context_var = Variable(tensor(*context_size), requires_grad=False)
 
         self.context_var.data.fill_(-1.0)
-        self.context_var.data[domain] = 1.0
+        self.context_var.data[:,domain,:,:] = 1.0
 
-    def forward(self, input_tuple):
+    def forward(self, *input_tuple):
         input, domain = input_tuple
-        self.prepare_context(input, domain)
-
-        for name, module in self._modules.items():
-            if "Conv" in name:
-                input = torch.cat((input, self.context_var))
+        for module in self._modules.values():
+            if 'Conv' in module.__class__.__name__:
+                self.prepare_context(input, domain)
+                input = torch.cat((input, self.context_var), dim=1)
             input = module(input)
         return input
