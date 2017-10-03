@@ -128,8 +128,6 @@ class ResnetGenerator(nn.Module):
     def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect'):
         assert(n_blocks >= 0)
         super(ResnetGenerator, self).__init__()
-        self.input_nc = input_nc
-        self.output_nc = output_nc
         self.ngf = ngf
         self.gpu_ids = gpu_ids
         if type(norm_layer) == functools.partial:
@@ -309,8 +307,7 @@ class UnetSkipConnectionBlock(nn.Module):
 class NLayerDiscriminator(nn.Module):
     def __init__(self, input_nc, ndf=64, n_layers=3, n_classes=0, norm_layer=nn.BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
         super(NLayerDiscriminator, self).__init__()
-        self.input_nc = input_nc + n_classes
-        self.gpu_ids, self.n_classes = gpu_ids, n_classes
+        self.gpu_ids = gpu_ids
 
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
@@ -320,7 +317,7 @@ class NLayerDiscriminator(nn.Module):
         kw = 4
         padw = int(np.ceil((kw-1)/2))
         sequence = [
-            nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw),
+            nn.Conv2d(input_nc + n_classes, ndf, kernel_size=kw, stride=2, padding=padw),
             nn.LeakyReLU(0.2, True)
         ]
 
@@ -330,7 +327,7 @@ class NLayerDiscriminator(nn.Module):
             nf_mult_prev = nf_mult
             nf_mult = min(2**n, 8)
             sequence += [
-                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
+                nn.Conv2d(ndf * nf_mult_prev + n_classes, ndf * nf_mult,
                           kernel_size=kw, stride=2, padding=padw, bias=use_bias),
                 norm_layer(ndf * nf_mult),
                 nn.LeakyReLU(0.2, True)
@@ -339,31 +336,47 @@ class NLayerDiscriminator(nn.Module):
         nf_mult_prev = nf_mult
         nf_mult = min(2**n_layers, 8)
         sequence += [
-            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
+            nn.Conv2d(ndf * nf_mult_prev + n_classes, ndf * nf_mult,
                       kernel_size=kw, stride=1, padding=padw, bias=use_bias),
             norm_layer(ndf * nf_mult),
             nn.LeakyReLU(0.2, True)
         ]
 
-        output_nc = max(1, self.n_classes)
-        sequence += [nn.Conv2d(ndf * nf_mult, output_nc, kernel_size=kw, stride=1, padding=padw)]
+        output_nc = max(1, n_classes)
+        sequence += [nn.Conv2d(ndf * nf_mult + n_classes, output_nc, kernel_size=kw, stride=1, padding=padw)]
 
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
 
-        self.model = nn.Sequential(*sequence)
+        self.model = SeqContextConv(n_classes, *sequence)
 
     def forward(self, input, domain=None):
-        use_gpu = len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor)
+        if len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor):
+            return nn.parallel.data_parallel(self.model, (input, domain), self.gpu_ids)
+        return self.model((input, domain))
 
-        if domain is not None:
-            tensor = torch.cuda.FloatTensor if use_gpu else torch.FloatTensor
+class SeqContextConv(nn.Sequential):
+    def __init__(self, n_classes, *args):
+        super(SequentialWithContext, self).__init__(args)
+        self.n_classes = n_classes
+        self.context_var = None
+
+    def prepare_context(self, input, domain):
+        if self.context_var is None or self.context_var.size()[1:] != input.size()[1:]:
+            tensor = torch.cuda.FloatTensor if isinstance(input.data, torch.cuda.FloatTensor)
+                     else torch.FloatTensor
             context_size = (self.n_classes,) + input.size()[1:]
-            context_channels = tensor(*context_size).fill_(-1.0)
-            context_channels[domain] = 1.0
-            input = torch.cat([input, Variable(context_channels)])
+            self.context_var = Variable(tensor(*context_size), requires_grad=False)
 
-        if use_gpu:
-            return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
-        else:
-            return self.model(input)
+        self.context_var.data.fill_(-1.0)
+        self.context_var.data[domain] = 1.0
+
+    def forward(self, input_tuple):
+        input, domain = input_tuple
+        self.prepare_context(input, domain)
+
+        for name, module in self._modules.items():
+            if "Conv" in name:
+                input = torch.cat((input, self.context_var))
+            input = module(input)
+        return input
