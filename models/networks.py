@@ -30,7 +30,7 @@ def get_norm_layer(norm_type='instance'):
     return norm_layer
 
 
-def define_G(input_nc, output_nc, ngf, which_model_netG, norm='batch', use_dropout=False, gpu_ids=[]):
+def define_G(input_nc, output_nc, ngf, n_classes=0, which_model_netG, norm='batch', use_dropout=False, gpu_ids=[]):
     netG = None
     use_gpu = len(gpu_ids) > 0
     norm_layer = get_norm_layer(norm_type=norm)
@@ -38,9 +38,9 @@ def define_G(input_nc, output_nc, ngf, which_model_netG, norm='batch', use_dropo
         assert(torch.cuda.is_available())
 
     if which_model_netG == 'resnet_9blocks':
-        netG = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, gpu_ids=gpu_ids)
+        netG = ResnetGenerator(input_nc, output_nc, ngf, n_classes=n_classes, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, gpu_ids=gpu_ids)
     elif which_model_netG == 'resnet_6blocks':
-        netG = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, gpu_ids=gpu_ids)
+        netG = ResnetGenerator(input_nc, output_nc, ngf, n_classes=n_classes, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, gpu_ids=gpu_ids)
     elif which_model_netG == 'unet_128':
         netG = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout, gpu_ids=gpu_ids)
     elif which_model_netG == 'unet_256':
@@ -53,8 +53,8 @@ def define_G(input_nc, output_nc, ngf, which_model_netG, norm='batch', use_dropo
     return netG
 
 
-def define_D(input_nc, ndf, which_model_netD,
-             n_layers_D=3, norm='batch', use_sigmoid=False, n_classes=0, gpu_ids=[]):
+def define_D(input_nc, ndf, which_model_netD, n_layers_D=3,
+             n_classes=0, norm='batch', use_sigmoid=False, gpu_ids=[]):
     netD = None
     use_gpu = len(gpu_ids) > 0
     norm_layer = get_norm_layer(norm_type=norm)
@@ -118,7 +118,8 @@ class GANLoss(nn.Module):
 # Code and idea originally from Justin Johnson's architecture.
 # https://github.com/jcjohnson/fast-neural-style/
 class ResnetGenerator(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, n_classes=0,
+                 norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect'):
         assert(n_blocks >= 0)
         super(ResnetGenerator, self).__init__()
         self.ngf = ngf
@@ -129,7 +130,7 @@ class ResnetGenerator(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
 
         model = [nn.ReflectionPad2d(3),
-                 nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0,
+                 nn.Conv2d(input_nc + n_classes, ngf, kernel_size=7, padding=0,
                            bias=use_bias),
                  norm_layer(ngf),
                  nn.ReLU(True)]
@@ -137,14 +138,15 @@ class ResnetGenerator(nn.Module):
         n_downsampling = 2
         for i in range(n_downsampling):
             mult = 2**i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
+            model += [nn.Conv2d(ngf * mult + n_classes, ngf * mult * 2, kernel_size=3,
                                 stride=2, padding=1, bias=use_bias),
                       norm_layer(ngf * mult * 2),
                       nn.ReLU(True)]
 
         mult = 2**n_downsampling
         for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+            model += [ResnetBlock(ngf * mult, n_classes=n_classes, padding_type=padding_type,
+                                  norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
 
         for i in range(n_downsampling):
             mult = 2**(n_downsampling - i)
@@ -155,21 +157,21 @@ class ResnetGenerator(nn.Module):
                       norm_layer(int(ngf * mult / 2)),
                       nn.ReLU(True)]
         model += [nn.ReflectionPad2d(3)]
-        model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
+        model += [nn.Conv2d(ngf + n_classes, output_nc, kernel_size=7, padding=0)]
         model += [nn.Tanh()]
 
-        self.model = nn.Sequential(*model)
+        self.model = SequentialContext(n_classes, *model)
 
-    def forward(self, input):
+    def forward(self, input, in_domain=None, out_domain=None):
         if self.gpu_ids and isinstance(input.data, torch.cuda.FloatTensor):
-            return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
+            return nn.parallel.data_parallel(self.model, (input, in_domain, out_domain), self.gpu_ids)
         else:
-            return self.model(input)
+            return self.model(input, in_domain, out_domain)
 
 
 # Define a resnet block
 class ResnetBlock(nn.Module):
-    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
+    def __init__(self, dim, n_classes, padding_type, norm_layer, use_dropout, use_bias):
         super(ResnetBlock, self).__init__()
         self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
 
@@ -185,7 +187,7 @@ class ResnetBlock(nn.Module):
         else:
             raise NotImplementedError('padding [%s] is not implemented' % padding_type)
 
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias),
+        conv_block += [nn.Conv2d(dim + n_classes, dim, kernel_size=3, padding=p, bias=use_bias),
                        norm_layer(dim),
                        nn.ReLU(True)]
         if use_dropout:
@@ -200,14 +202,14 @@ class ResnetBlock(nn.Module):
             p = 1
         else:
             raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias),
+        conv_block += [nn.Conv2d(dim + n_classes, dim, kernel_size=3, padding=p, bias=use_bias),
                        norm_layer(dim)]
 
-        return nn.Sequential(*conv_block)
+        return SequentialContext(n_classes, *conv_block)
 
-    def forward(self, x):
-        out = x + self.conv_block(x)
-        return out
+    def forward(self, input_tuple):
+        x = input_tuple[0]
+        return x + self.conv_block(*input_tuple)
 
 
 # Defines the Unet generator.
@@ -341,10 +343,7 @@ class NLayerDiscriminator(nn.Module):
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
 
-        if n_classes > 0:
-            self.model = SequentialContext(n_classes, *sequence)
-        else:
-            self.model = nn.Sequential(*sequence)
+        self.model = SequentialContext(n_classes, *sequence)
 
     def forward(self, input, domain=None):
         if len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor):
@@ -357,22 +356,40 @@ class SequentialContext(nn.Sequential):
         super(SequentialContext, self).__init__(*args)
         self.n_classes = n_classes
         self.context_var = None
+        self.out_context_var = None
 
-    def prepare_context(self, input, domain):
+    def prepare_context(self, input, in_domain, out_domain=None):
         if self.context_var is None or self.context_var.size()[-2:] != input.size()[-2:]:
             tensor = torch.cuda.FloatTensor if isinstance(input.data, torch.cuda.FloatTensor) \
                      else torch.FloatTensor
             context_size = (1, self.n_classes) + input.size()[-2:]
             self.context_var = Variable(tensor(*context_size), requires_grad=False)
+            if out_domain is not None:
+                self.out_context_var = self.context_var.clone()
 
         self.context_var.data.fill_(-1.0)
-        self.context_var.data[:,domain,:,:] = 1.0
+        self.context_var.data[:,in_domain,:,:] = 1.0
+        if out_domain is not None:
+            self.out_context_var.data.fill_(-1.0)
+            self.out_context_var.data[:,out_domain,:,:] = 1.0
+            return [self.context_var, self.out_context_var]
+        return [self.context_var]
 
     def forward(self, *input_tuple):
-        input, domain = input_tuple
+        if len(input_tuple) == 3:
+            input, domain, out_domain = input_tuple
+        else:
+            input, domain = input_tuple
+            out_domain = None
+
+        if self.n_classes == 0:
+            return super(SequentialContext, self).forward(input)
+
         for module in self._modules.values():
             if 'Conv' in module.__class__.__name__:
-                self.prepare_context(input, domain)
-                input = torch.cat([input, self.context_var], dim=1)
+                context_var = self.prepare_context(input, domain, out_domain)
+                input = torch.cat([input] + context_var, dim=1)
+            elif 'Block' in module.__class__.__name__:
+                input = input_tuple
             input = module(input)
         return input
