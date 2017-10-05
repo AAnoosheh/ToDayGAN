@@ -34,7 +34,6 @@ def define_G(input_nc, output_nc, ngf, which_model_netG, norm='batch', use_dropo
     netG = None
     use_gpu = len(gpu_ids) > 0
     norm_layer = get_norm_layer(norm_type=norm)
-
     if use_gpu:
         assert(torch.cuda.is_available())
 
@@ -48,7 +47,7 @@ def define_G(input_nc, output_nc, ngf, which_model_netG, norm='batch', use_dropo
         netG = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout, gpu_ids=gpu_ids)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % which_model_netG)
-    if len(gpu_ids) > 0:
+    if use_gpu:
         netG.cuda(device_id=gpu_ids[0])
     netG.apply(weights_init)
     return netG
@@ -59,16 +58,15 @@ def define_D(input_nc, ndf, which_model_netD,
     netD = None
     use_gpu = len(gpu_ids) > 0
     norm_layer = get_norm_layer(norm_type=norm)
-
     if use_gpu:
         assert(torch.cuda.is_available())
+
     if which_model_netD == 'basic':
         netD = NLayerDiscriminator(input_nc, ndf, n_layers=3, n_classes=n_classes, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
     elif which_model_netD == 'n_layers':
         netD = NLayerDiscriminator(input_nc, ndf, n_layers_D, n_classes=n_classes, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
     else:
-        raise NotImplementedError('Discriminator model name [%s] is not recognized' %
-                                  which_model_netD)
+        raise NotImplementedError('Discriminator model name [%s] is not recognized' % which_model_netD)
     if use_gpu:
         netD.cuda(device_id=gpu_ids[0])
     netD.apply(weights_init)
@@ -98,10 +96,7 @@ class GANLoss(nn.Module):
         self.Tensor = tensor
         self.label_var = None
         self.label_mask = None
-        if use_lsgan:
-            self.loss = nn.MSELoss()
-        else:
-            self.loss = nn.BCELoss()
+        self.loss = nn.MSELoss() if use_lsgan else nn.BCELoss()
 
     def prepare_target_tensor(self, input, target_class, is_real):
         if self.label_var is None or self.label_var.numel() != input.numel():
@@ -348,12 +343,16 @@ class NLayerDiscriminator(nn.Module):
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
 
-        self.model = SequentialContext(n_classes, *sequence)
+        if n_classes > 0:
+            self.model = SequentialContext(n_classes, *sequence)
+        else:
+            self.model = nn.Sequential(*sequence)
 
     def forward(self, input, domain=None):
         if len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor):
             return nn.parallel.data_parallel(self.model, (input, domain), self.gpu_ids)
         return self.model(input, domain)
+
 
 class SequentialContext(nn.Sequential):
     def __init__(self, n_classes, *args):
@@ -376,6 +375,6 @@ class SequentialContext(nn.Sequential):
         for module in self._modules.values():
             if 'Conv' in module.__class__.__name__:
                 self.prepare_context(input, domain)
-                input = torch.cat((input, self.context_var), dim=1)
+                input = torch.cat([input, self.context_var], dim=1)
             input = module(input)
         return input
