@@ -376,11 +376,8 @@ class SequentialContext(nn.Sequential):
         return [self.context_var]
 
     def forward(self, *input_tuple):
-        if len(input_tuple) == 3:
-            input, domain, out_domain = input_tuple
-        else:
-            input, domain = input_tuple
-            out_domain = None
+        input, domain = input_tuple[:2]
+        out_domain = input_tuple[2] if len(input_tuple) == 3 else None
 
         if self.n_classes == 0:
             return super(SequentialContext, self).forward(input)

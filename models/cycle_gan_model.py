@@ -27,21 +27,17 @@ class CycleGANModel(BaseModel):
 
         # load/define networks
         # The naming conversion is different from those used in the paper
-        # Code (paper): G_A (G), G_B (F), D (both D_A & D_B)
+        # Code (paper): G (both G & F), D (both D_A & D_B)
 
-        self.netG_A = networks.define_G(opt.input_nc, opt.output_nc,
-                                        opt.ngf, n_classes, opt.which_model_netG, opt.norm, not opt.no_dropout, self.gpu_ids)
-        self.netG_B = networks.define_G(opt.output_nc, opt.input_nc,
-                                        opt.ngf, n_classes, opt.which_model_netG, opt.norm, not opt.no_dropout, self.gpu_ids)
+        self.netG = networks.define_G(opt.input_nc, opt.output_nc,
+                                      opt.ngf, n_classes, opt.which_model_netG, opt.norm, not opt.no_dropout, self.gpu_ids)
         if self.isTrain:
-            use_sigmoid = opt.no_lsgan
             self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.which_model_netD,
-                                          opt.n_layers_D, n_classes, opt.norm, use_sigmoid, self.gpu_ids)
+                                          opt.n_layers_D, n_classes, opt.norm, opt.no_lsgan, self.gpu_ids)
 
         if not self.isTrain or opt.continue_train:
             which_epoch = opt.which_epoch
-            self.load_network(self.netG_A, 'G_A', which_epoch)
-            self.load_network(self.netG_B, 'G_B', which_epoch)
+            self.load_network(self.netG, 'G', which_epoch)
             if self.isTrain:
                 self.load_network(self.netD, 'D', which_epoch)
 
@@ -53,16 +49,13 @@ class CycleGANModel(BaseModel):
             self.criterionGAN = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
-            self.criterionDEX = torch.nn.L1Loss()
             self.downsample_image = torch.nn.AvgPool2d(3,stride=4)
             # initialize optimizers
-            self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()),
-                                                lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
 
         print('---------- Networks initialized -------------')
-        networks.print_network(self.netG_A)
-        networks.print_network(self.netG_B)
+        networks.print_network(self.netG)
         if self.isTrain:
             networks.print_network(self.netD)
         print('-----------------------------------------------')
@@ -81,12 +74,12 @@ class CycleGANModel(BaseModel):
 
     def test(self):
         self.real_A = Variable(self.input_A, volatile=True)
-        self.fake_B = self.netG_A.forward(self.real_A)
-        self.rec_A = self.netG_B.forward(self.fake_B)
+        self.fake_B = self.netG.forward(self.real_A, DA, DB)
+        self.rec_A = self.netG.forward(self.fake_B, DB, DA)
 
         self.real_B = Variable(self.input_B, volatile=True)
-        self.fake_A = self.netG_B.forward(self.real_B)
-        self.rec_B = self.netG_A.forward(self.fake_A)
+        self.fake_A = self.netG.forward(self.real_B, DB, DA)
+        self.rec_B = self.netG.forward(self.fake_A, DA, DB)
 
     # get image paths
     def get_image_paths(self):
@@ -120,10 +113,10 @@ class CycleGANModel(BaseModel):
         # Identity loss
         if lambda_idt > 0:
             # G_A should be identity if real_B is fed.
-            self.idt_A = self.netG_A.forward(self.real_B)
+            self.idt_A = self.netG.forward(self.real_B, DA, DB)
             self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
             # G_B should be identity if real_A is fed.
-            self.idt_B = self.netG_B.forward(self.real_A)
+            self.idt_B = self.netG.forward(self.real_A, DB, DA)
             self.loss_idt_B = self.criterionIdt(self.idt_B, self.real_A) * lambda_A * lambda_idt
         else:
             self.loss_idt_A = 0
@@ -131,18 +124,19 @@ class CycleGANModel(BaseModel):
 
         # GAN loss
         # D_A(G_A(A))
-        self.fake_B = self.netG_A.forward(self.real_A)
+        self.fake_B = self.netG.forward(self.real_A, DA, DB)
         pred_fake = self.netD.forward(self.fake_B, DB)
         self.loss_G_A = self.criterionGAN(pred_fake, DB, True)
         # D_B(G_B(B))
-        self.fake_A = self.netG_B.forward(self.real_B)
+        self.fake_A = self.netG.forward(self.real_B, DB, DA)
         pred_fake = self.netD.forward(self.fake_A, DA)
         self.loss_G_B = self.criterionGAN(pred_fake, DA, True)
+
         # Forward cycle loss
-        self.rec_A = self.netG_B.forward(self.fake_B)
+        self.rec_A = self.netG.forward(self.fake_B, DB, DA)
         self.loss_cycle_A = self.criterionCycle(self.rec_A, self.real_A) * lambda_A
         # Backward cycle loss
-        self.rec_B = self.netG_A.forward(self.fake_A)
+        self.rec_B = self.netG.forward(self.fake_A, DA, DB)
         self.loss_cycle_B = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
         # combined loss
         self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
@@ -197,9 +191,8 @@ class CycleGANModel(BaseModel):
                                 ('real_B', real_B), ('fake_A', fake_A), ('rec_B', rec_B)])
 
     def save(self, label):
-        self.save_network(self.netG_A, 'G_A', label, self.gpu_ids)
+        self.save_network(self.netG, 'G', label, self.gpu_ids)
         self.save_network(self.netD, 'D', label, self.gpu_ids)
-        self.save_network(self.netG_B, 'G_B', label, self.gpu_ids)
 
     def update_learning_rate(self):
         lrd = self.opt.lr / self.opt.niter_decay
