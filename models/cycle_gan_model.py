@@ -30,7 +30,7 @@ class CycleGANModel(BaseModel):
         # Code (paper): G (both G & F), D (both D_A & D_B)
 
         self.netG = networks.define_G(opt.input_nc, opt.output_nc,
-                                      opt.ngf, n_classes, opt.which_model_netG, opt.norm, not opt.no_dropout, self.gpu_ids)
+                                      opt.ngf, opt.which_model_netG, n_classes, opt.norm, not opt.no_dropout, self.gpu_ids)
         if self.isTrain:
             self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.which_model_netD,
                                           opt.n_layers_D, n_classes, opt.norm, opt.no_lsgan, self.gpu_ids)

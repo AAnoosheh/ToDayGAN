@@ -30,7 +30,7 @@ def get_norm_layer(norm_type='instance'):
     return norm_layer
 
 
-def define_G(input_nc, output_nc, ngf, n_classes=0, which_model_netG, norm='batch', use_dropout=False, gpu_ids=[]):
+def define_G(input_nc, output_nc, ngf, which_model_netG, n_classes=0, norm='batch', use_dropout=False, gpu_ids=[]):
     netG = None
     use_gpu = len(gpu_ids) > 0
     norm_layer = get_norm_layer(norm_type=norm)
@@ -130,7 +130,7 @@ class ResnetGenerator(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
 
         model = [nn.ReflectionPad2d(3),
-                 nn.Conv2d(input_nc + n_classes, ngf, kernel_size=7, padding=0,
+                 nn.Conv2d(input_nc + 2*n_classes, ngf, kernel_size=7, padding=0,
                            bias=use_bias),
                  norm_layer(ngf),
                  nn.ReLU(True)]
@@ -138,7 +138,7 @@ class ResnetGenerator(nn.Module):
         n_downsampling = 2
         for i in range(n_downsampling):
             mult = 2**i
-            model += [nn.Conv2d(ngf * mult + n_classes, ngf * mult * 2, kernel_size=3,
+            model += [nn.Conv2d(ngf * mult + 2*n_classes, ngf * mult * 2, kernel_size=3,
                                 stride=2, padding=1, bias=use_bias),
                       norm_layer(ngf * mult * 2),
                       nn.ReLU(True)]
@@ -150,14 +150,14 @@ class ResnetGenerator(nn.Module):
 
         for i in range(n_downsampling):
             mult = 2**(n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
+            model += [nn.ConvTranspose2d(ngf * mult + 2*n_classes, int(ngf * mult / 2),
                                          kernel_size=3, stride=2,
                                          padding=1, output_padding=1,
                                          bias=use_bias),
                       norm_layer(int(ngf * mult / 2)),
                       nn.ReLU(True)]
         model += [nn.ReflectionPad2d(3)]
-        model += [nn.Conv2d(ngf + n_classes, output_nc, kernel_size=7, padding=0)]
+        model += [nn.Conv2d(ngf + 2*n_classes, output_nc, kernel_size=7, padding=0)]
         model += [nn.Tanh()]
 
         self.model = SequentialContext(n_classes, *model)
@@ -173,9 +173,9 @@ class ResnetGenerator(nn.Module):
 class ResnetBlock(nn.Module):
     def __init__(self, dim, n_classes, padding_type, norm_layer, use_dropout, use_bias):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
+        self.conv_block = self.build_conv_block(dim, n_classes, padding_type, norm_layer, use_dropout, use_bias)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
+    def build_conv_block(self, dim, n_classes, padding_type, norm_layer, use_dropout, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -187,7 +187,7 @@ class ResnetBlock(nn.Module):
         else:
             raise NotImplementedError('padding [%s] is not implemented' % padding_type)
 
-        conv_block += [nn.Conv2d(dim + n_classes, dim, kernel_size=3, padding=p, bias=use_bias),
+        conv_block += [nn.Conv2d(dim + 2*n_classes, dim, kernel_size=3, padding=p, bias=use_bias),
                        norm_layer(dim),
                        nn.ReLU(True)]
         if use_dropout:
@@ -202,7 +202,7 @@ class ResnetBlock(nn.Module):
             p = 1
         else:
             raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [nn.Conv2d(dim + n_classes, dim, kernel_size=3, padding=p, bias=use_bias),
+        conv_block += [nn.Conv2d(dim + 2*n_classes, dim, kernel_size=3, padding=p, bias=use_bias),
                        norm_layer(dim)]
 
         return SequentialContext(n_classes, *conv_block)
@@ -387,6 +387,6 @@ class SequentialContext(nn.Sequential):
                 context_var = self.prepare_context(input, domain, out_domain)
                 input = torch.cat([input] + context_var, dim=1)
             elif 'Block' in module.__class__.__name__:
-                input = input_tuple
+                input = (input,) + input_tuple[1:]
             input = module(input)
         return input
