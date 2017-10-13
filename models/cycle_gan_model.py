@@ -108,11 +108,11 @@ class CycleGANModel(BaseModel):
 
     def backward_D_A(self):
         fake_B = self.fake_B_pool.query(self.fake_B)
-        self.loss_D_A = self.backward_D_basic(self.real_B, fake_B, DA)
+        self.loss_D_A = self.backward_D_basic(self.real_B, fake_B, DB)
 
     def backward_D_B(self):
         fake_A = self.fake_A_pool.query(self.fake_A)
-        self.loss_D_B = self.backward_D_basic(self.real_A, fake_A, DB)
+        self.loss_D_B = self.backward_D_basic(self.real_A, fake_A, DA)
 
     def backward_G(self):
         lambda_idt = self.opt.identity
@@ -133,12 +133,12 @@ class CycleGANModel(BaseModel):
         # GAN loss
         # D_A(G_A(A))
         self.fake_B = self.netG_A.forward(self.real_A)
-        pred_fake = self.netD.forward(self.fake_B, domain=DB)
-        self.loss_G_A = self.criterionGAN(pred_fake, DA, True)
+        pred_fake = self.netD.forward(self.fake_B, DB)
+        self.loss_G_A = self.criterionGAN(pred_fake, DB, True)
         # D_B(G_B(B))
         self.fake_A = self.netG_B.forward(self.real_B)
-        pred_fake = self.netD.forward(self.fake_A, domain=DA)
-        self.loss_G_B = self.criterionGAN(pred_fake, DB, True)
+        pred_fake = self.netD.forward(self.fake_A, DA)
+        self.loss_G_B = self.criterionGAN(pred_fake, DA, True)
         # Forward cycle loss
         self.rec_A = self.netG_B.forward(self.fake_B)
         self.loss_cycle_A = self.criterionCycle(self.rec_A, self.real_A) * lambda_A
@@ -212,3 +212,4 @@ class CycleGANModel(BaseModel):
 
         print('update learning rate: %f -> %f' % (self.old_lr, lr))
         self.old_lr = lr
+

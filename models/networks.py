@@ -94,25 +94,23 @@ class GANLoss(nn.Module):
     def __init__(self, use_lsgan=True, tensor=torch.FloatTensor):
         super(GANLoss, self).__init__()
         self.Tensor = tensor
-        self.label_var = None
-        self.label_mask = None
+        self.label_real, self.label_fake = None, None
         self.loss = nn.MSELoss() if use_lsgan else nn.BCELoss()
 
-    def prepare_target_tensor(self, input, target_class, is_real):
-        if self.label_var is None or self.label_var.numel() != input.numel():
-            self.label_var = Variable(self.Tensor(input.size()), requires_grad=False)
-            self.label_mask = self.label_var.clone()
+    def get_target_tensor(self, input, is_real):
+        input_slice = input[:,0,:,:]
+        if self.label_real is None or self.label_real.numel() != input_slice.numel():
+            self.label_real = Variable(self.Tensor(input_slice.size()).fill_(1.0), requires_grad=False)
+            self.label_fake = Variable(self.Tensor(input_slice.size()).fill_(0.0), requires_grad=False)
 
-        self.label_var.data.fill_(0.0)
-        self.label_mask.data.fill_(0.0)
         if is_real:
-            self.label_var.data[:,target_class,:,:] = 1.0
-        self.label_mask.data[:,target_class,:,:] = 1.0
+            return self.label_real
+        return self.label_fake
 
     def __call__(self, input, target_class, is_real):
-        self.prepare_target_tensor(input, target_class, is_real)
-        input_masked = input * self.label_mask  # ignore loss for other classes
-        return self.loss(input_masked, self.label_var)
+        label_var = self.get_target_tensor(input, is_real)
+        target_input_slice = input[:,target_class,:,:]
+        return self.loss(target_input_slice, label_var)
 
 
 # Defines the generator that consists of Resnet blocks between a few
