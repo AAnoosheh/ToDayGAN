@@ -1,4 +1,4 @@
-import os.path
+import os.path, glob
 import torchvision.transforms as transforms
 from data.base_dataset import BaseDataset, get_transform
 from data.image_folder import make_dataset
@@ -11,24 +11,24 @@ class UnalignedDataset(BaseDataset):
     def initialize(self, opt):
         self.opt = opt
         self.root = opt.dataroot
-        self.dir_A = os.path.join(opt.dataroot, opt.phase + 'A')
-        self.dir_B = os.path.join(opt.dataroot, opt.phase + 'B')
-
-        self.A_paths = make_dataset(self.dir_A)
-        self.B_paths = make_dataset(self.dir_B)
-
-        self.A_paths = sorted(self.A_paths)
-        self.B_paths = sorted(self.B_paths)
-        self.A_size = len(self.A_paths)
-        self.B_size = len(self.B_paths)
         self.transform = get_transform(opt)
 
+        datapath = os.path.join(opt.dataroot, opt.phase + '*')
+        self.dirs = sorted(glob.glob(datapath))
+
+        self.paths = [sorted(make_dataset(d)) for d in self.dirs]
+        self.sizes = [len(p) for p in self.paths]
+
     def __getitem__(self, index):
-        A_path = self.A_paths[index % self.A_size]
-        index_A = index % self.A_size
-        index_B = random.randint(0, self.B_size - 1)
-        B_path = self.B_paths[index_B]
-        # print('(A, B) = (%d, %d)' % (index_A, index_B))
+        # Choose two of our domains to perform a pass on
+        DA, DB = random.sample(range(len(self.dirs)), 2)
+
+        index_A = index % self.sizes[DA]
+        index_B = random.randint(0, self.sizes[DB] - 1)
+
+        A_path = self.paths[DA][index_A]
+        B_path = self.paths[DB][index_B]
+
         A_img = Image.open(A_path).convert('RGB')
         B_img = Image.open(B_path).convert('RGB')
 
@@ -36,10 +36,11 @@ class UnalignedDataset(BaseDataset):
         B_img = self.transform(B_img)
 
         return {'A': A_img, 'B': B_img,
-                'A_paths': A_path, 'B_paths': B_path}
+                'DA': DA, 'DB': DB,
+                'path': A_path}
 
     def __len__(self):
-        return max(self.A_size, self.B_size)
+        return max(self.sizes)
 
     def name(self):
         return 'UnalignedDataset'

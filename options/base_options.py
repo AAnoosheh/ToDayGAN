@@ -25,7 +25,7 @@ class BaseOptions():
         self.parser.add_argument('--dataset_mode', type=str, default='unaligned', help='chooses how datasets are loaded. [unaligned | aligned | single]')
         self.parser.add_argument('--model', type=str, default='cycle_gan',
                                  help='chooses which model to use. cycle_gan, pix2pix, test')
-        self.parser.add_argument('--which_direction', type=str, default='AtoB', help='AtoB or BtoA')
+        self.parser.add_argument('--n_domains', type=int, default=2, help='Number of domains to transfer among')
         self.parser.add_argument('--nThreads', default=2, type=int, help='# threads for loading data')
         self.parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints', help='models are saved here')
         self.parser.add_argument('--norm', type=str, default='instance', help='instance normalization or batch normalization')

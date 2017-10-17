@@ -18,7 +18,7 @@ class CycleGANModel(BaseModel):
     def initialize(self, opt):
         BaseModel.initialize(self, opt)
 
-        self.n_domains = 2
+        self.n_domains = opt.n_domains
         self.DA, self.DB = None, None
 
         nb, size = opt.batchSize, opt.fineSize
@@ -62,21 +62,16 @@ class CycleGANModel(BaseModel):
             networks.print_network(self.netD)
         print('-----------------------------------------------')
 
-    def shuffle_domains(self):
-        self.DA, self.DB = np.random.randint(0, self.n_domains, 2)
-
     def set_input(self, input):
-        self.input = input
-        #TODO
-        self.image_paths = input['A_paths' if AtoB else 'B_paths']
-        #TODO
-
-    def forward(self):
-        input_A = self.input[self.DA]
-        input_B = self.input[self.DB]
+        input_A = self.input['A']
+        input_B = self.input['B']
         self.input_A.resize_(input_A.size()).copy_(input_A)
         self.input_B.resize_(input_B.size()).copy_(input_B)
+        self.DA = input['DA']
+        self.DB = input['DB']
+        self.image_paths = input['path']
 
+    def forward(self):
         self.real_A = Variable(self.input_A)
         self.real_B = Variable(self.input_B)
 
@@ -155,8 +150,6 @@ class CycleGANModel(BaseModel):
         self.loss_G.backward()
 
     def optimize_parameters(self):
-        # forward
-        self.shuffle_domains()
         self.forward()
         # G_A and G_B
         self.optimizer_G.zero_grad()
