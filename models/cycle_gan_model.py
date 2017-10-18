@@ -27,11 +27,11 @@ class CycleGANModel(BaseModel):
         # load/define networks
         # The naming conversion is different from those used in the paper
         # Code (paper): G (both G & F), D (both D_A & D_B)
-        self.netG = networks.define_G(opt.input_nc, opt.output_nc,
-                                      opt.ngf, opt.which_model_netG, self.n_domains, opt.norm, not opt.no_dropout, self.gpu_ids)
+        self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf,
+                                      opt.which_model_netG, self.n_domains, opt.norm, not opt.no_dropout, self.gpu_ids)
         if self.isTrain:
             self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.which_model_netD,
-                                          opt.n_layers_D, self.n_domains, opt.norm, opt.no_lsgan, self.gpu_ids)
+                                          self.n_domains, opt.n_layers_D, opt.norm, opt.no_lsgan, self.gpu_ids)
 
         if not self.isTrain or opt.continue_train:
             which_epoch = opt.which_epoch
@@ -90,10 +90,10 @@ class CycleGANModel(BaseModel):
 
     def backward_D_basic(self, real, fake, domain):
         # Real
-        pred_real = self.netD.forward(real, domain=domain)
+        pred_real = self.netD.forward(real, domain)
         loss_D_real = self.criterionGAN(pred_real, domain, True)
         # Fake
-        pred_fake = self.netD.forward(fake.detach(), domain=domain)
+        pred_fake = self.netD.forward(fake.detach(), domain)
         loss_D_fake = self.criterionGAN(pred_fake, domain, False)
         # Combined loss
         loss_D = (loss_D_real + loss_D_fake) * 0.5

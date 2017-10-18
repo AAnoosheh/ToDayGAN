@@ -30,43 +30,48 @@ def get_norm_layer(norm_type='instance'):
     return norm_layer
 
 
-def define_G(input_nc, output_nc, ngf, which_model_netG, n_classes=0, norm='batch', use_dropout=False, gpu_ids=[]):
-    netG = None
+def define_G(input_nc, output_nc, ngf, which_model_netG, n_domains, norm='batch', use_dropout=False, gpu_ids=[]):
     use_gpu = len(gpu_ids) > 0
     norm_layer = get_norm_layer(norm_type=norm)
     if use_gpu:
         assert(torch.cuda.is_available())
 
+    #TODO
     if which_model_netG == 'resnet_9blocks':
-        netG = ResnetGenerator(input_nc, output_nc, ngf, n_classes=n_classes, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, gpu_ids=gpu_ids)
+        enc_args = (input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, gpu_ids=gpu_ids)
+        dec_args = (input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, gpu_ids=gpu_ids)
     elif which_model_netG == 'resnet_6blocks':
-        netG = ResnetGenerator(input_nc, output_nc, ngf, n_classes=n_classes, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, gpu_ids=gpu_ids)
+        enc_args = (input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, gpu_ids=gpu_ids)
+        dec_args = (input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, gpu_ids=gpu_ids)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % which_model_netG)
+
+    plex_netG = G_Plexer(n_domains, ResnetGenEncoder, ResnetGenDecoder, enc_args, dec_args)
+    #TODO
     if use_gpu:
-        netG.cuda(device_id=gpu_ids[0])
-    netG.apply(weights_init)
-    return netG
+        plex_netG.set_gpu(gpu_ids[0])
+    plex_netG.apply(weights_init)
+    return plex_netG
 
 
-def define_D(input_nc, ndf, which_model_netD, n_layers_D=3,
-             n_classes=0, norm='batch', use_sigmoid=False, gpu_ids=[]):
-    netD = None
-    use_gpu = len(gpu_ids) > 0
+def define_D(input_nc, ndf, which_model_netD, n_domains, n_layers_D=3, norm='batch', use_sigmoid=False, gpu_ids=[]):
     norm_layer = get_norm_layer(norm_type=norm)
+    use_gpu = len(gpu_ids) > 0
     if use_gpu:
         assert(torch.cuda.is_available())
 
     if which_model_netD == 'basic':
-        netD = NLayerDiscriminator(input_nc, ndf, n_layers=3, n_classes=n_classes, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
+        model_args = (input_nc, ndf, n_layers=3, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
     elif which_model_netD == 'n_layers':
-        netD = NLayerDiscriminator(input_nc, ndf, n_layers_D, n_classes=n_classes, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
+        model_args = (input_nc, ndf, n_layers_D, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
     else:
         raise NotImplementedError('Discriminator model name [%s] is not recognized' % which_model_netD)
+
+    plex_netD = D_Plexer(n_domains, NLayerDiscriminator, model_args)
     if use_gpu:
-        netD.cuda(device_id=gpu_ids[0])
-    netD.apply(weights_init)
-    return netD
+        plex_netD.set_gpu(gpu_ids[0])
+    plex_netD.apply(weights_init)
+    return plex_netD
 
 
 def print_network(net):
@@ -114,8 +119,8 @@ class GANLoss(nn.Module):
 # Code and idea originally from Justin Johnson's architecture.
 # https://github.com/jcjohnson/fast-neural-style/
 class ResnetGenerator(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf=64, n_classes=0,
-                 norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d,
+                 use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect'):
         assert(n_blocks >= 0)
         super(ResnetGenerator, self).__init__()
         self.ngf = ngf
@@ -126,7 +131,7 @@ class ResnetGenerator(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
 
         model = [nn.ReflectionPad2d(3),
-                 nn.Conv2d(input_nc + 2*n_classes, ngf, kernel_size=7, padding=0,
+                 nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0,
                            bias=use_bias),
                  norm_layer(ngf),
                  nn.ReLU(True)]
@@ -134,44 +139,43 @@ class ResnetGenerator(nn.Module):
         n_downsampling = 2
         for i in range(n_downsampling):
             mult = 2**i
-            model += [nn.Conv2d(ngf * mult + 2*n_classes, ngf * mult * 2, kernel_size=3,
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
                                 stride=2, padding=1, bias=use_bias),
                       norm_layer(ngf * mult * 2),
                       nn.ReLU(True)]
 
         mult = 2**n_downsampling
         for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, n_classes=n_classes, padding_type=padding_type,
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type,
                                   norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
 
         for i in range(n_downsampling):
             mult = 2**(n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult + 2*n_classes, int(ngf * mult / 2),
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
                                          kernel_size=3, stride=2,
                                          padding=1, output_padding=1,
                                          bias=use_bias),
                       norm_layer(int(ngf * mult / 2)),
                       nn.ReLU(True)]
         model += [nn.ReflectionPad2d(3)]
-        model += [nn.Conv2d(ngf + 2*n_classes, output_nc, kernel_size=7, padding=0)]
+        model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
         model += [nn.Tanh()]
 
-        self.model = SequentialContext(n_classes, *model)
+        self.model = nn.Sequential(*model)
 
-    def forward(self, input, in_domain=None, out_domain=None):
+    def forward(self, input):
         if self.gpu_ids and isinstance(input.data, torch.cuda.FloatTensor):
-            return nn.parallel.data_parallel(self.model, (input, in_domain, out_domain), self.gpu_ids)
-        else:
-            return self.model(input, in_domain, out_domain)
+            return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
+        return self.model(input)
 
 
 # Define a resnet block
 class ResnetBlock(nn.Module):
-    def __init__(self, dim, n_classes, padding_type, norm_layer, use_dropout, use_bias):
+    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, n_classes, padding_type, norm_layer, use_dropout, use_bias)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
 
-    def build_conv_block(self, dim, n_classes, padding_type, norm_layer, use_dropout, use_bias):
+    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -183,7 +187,7 @@ class ResnetBlock(nn.Module):
         else:
             raise NotImplementedError('padding [%s] is not implemented' % padding_type)
 
-        conv_block += [nn.Conv2d(dim + 2*n_classes, dim, kernel_size=3, padding=p, bias=use_bias),
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias),
                        norm_layer(dim),
                        nn.ReLU(True)]
         if use_dropout:
@@ -198,19 +202,18 @@ class ResnetBlock(nn.Module):
             p = 1
         else:
             raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [nn.Conv2d(dim + 2*n_classes, dim, kernel_size=3, padding=p, bias=use_bias),
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias),
                        norm_layer(dim)]
 
-        return SequentialContext(n_classes, *conv_block)
+        return nn.Sequential(*conv_block)
 
-    def forward(self, input_tuple):
-        x = input_tuple[0]
-        return x + self.conv_block(*input_tuple)
+    def forward(self, x):
+        return x + self.conv_block(x)
 
 
 # Defines the PatchGAN discriminator with the specified arguments.
 class NLayerDiscriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3, n_classes=0, norm_layer=nn.BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
         super(NLayerDiscriminator, self).__init__()
         self.gpu_ids = gpu_ids
 
@@ -222,7 +225,7 @@ class NLayerDiscriminator(nn.Module):
         kw = 4
         padw = int(np.ceil((kw-1)/2))
         sequence = [
-            nn.Conv2d(input_nc + n_classes, ndf, kernel_size=kw, stride=2, padding=padw),
+            nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw),
             nn.LeakyReLU(0.2, True)
         ]
 
@@ -232,7 +235,7 @@ class NLayerDiscriminator(nn.Module):
             nf_mult_prev = nf_mult
             nf_mult = min(2**n, 8)
             sequence += [
-                nn.Conv2d(ndf * nf_mult_prev + n_classes, ndf * nf_mult,
+                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
                           kernel_size=kw, stride=2, padding=padw, bias=use_bias),
                 norm_layer(ndf * nf_mult),
                 nn.LeakyReLU(0.2, True)
@@ -241,62 +244,54 @@ class NLayerDiscriminator(nn.Module):
         nf_mult_prev = nf_mult
         nf_mult = min(2**n_layers, 8)
         sequence += [
-            nn.Conv2d(ndf * nf_mult_prev + n_classes, ndf * nf_mult,
+            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
                       kernel_size=kw, stride=1, padding=padw, bias=use_bias),
             norm_layer(ndf * nf_mult),
             nn.LeakyReLU(0.2, True)
         ]
 
-        output_nc = max(1, n_classes)
-        sequence += [nn.Conv2d(ndf * nf_mult + n_classes, output_nc, kernel_size=kw, stride=1, padding=padw)]
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
 
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
 
-        self.model = SequentialContext(n_classes, *sequence)
+        self.model = nn.Sequential(*sequence)
 
-    def forward(self, input, domain=None):
+    def forward(self, input):
         if len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor):
-            return nn.parallel.data_parallel(self.model, (input, domain), self.gpu_ids)
-        return self.model(input, domain)
+            return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
+        return self.model(input)
 
 
-class SequentialContext(nn.Sequential):
-    def __init__(self, n_classes, *args):
-        super(SequentialContext, self).__init__(*args)
-        self.n_classes = n_classes
-        self.context_var = None
-        self.out_context_var = None
+class Plexer(nn.Module):
+    def __init__(self):
+        super(Plexer, self).__init__()
 
-    def prepare_context(self, input, in_domain, out_domain=None):
-        if self.context_var is None or self.context_var.size()[-2:] != input.size()[-2:]:
-            tensor = torch.cuda.FloatTensor if isinstance(input.data, torch.cuda.FloatTensor) \
-                     else torch.FloatTensor
-            context_size = (1, self.n_classes) + input.size()[-2:]
-            self.context_var = Variable(tensor(*context_size), requires_grad=False)
-            if out_domain is not None:
-                self.out_context_var = self.context_var.clone()
+    def apply(func):
+        for net in self.networks:
+            net.apply(func)
 
-        self.context_var.data.fill_(-1.0)
-        self.context_var.data[:,in_domain,:,:] = 1.0
-        if out_domain is not None:
-            self.out_context_var.data.fill_(-1.0)
-            self.out_context_var.data[:,out_domain,:,:] = 1.0
-            return [self.context_var, self.out_context_var]
-        return [self.context_var]
+    def set_gpu(gpu_id):
+        for net in self.networks:
+            net.cuda(device_id=gpu_id)
 
-    def forward(self, *input_tuple):
-        input, domain = input_tuple[:2]
-        out_domain = input_tuple[2] if len(input_tuple) == 3 else None
+class G_Plexer(Plexer):
+    def __init__(self, n_domains, encoder, decoder, enc_args, dec_args):
+        super(G_Plexer, self).__init__()
+        self.encoders = [encoder(*enc_args) for _ in range(n_domains)]
+        self.decoders = [decoder(*dec_args) for _ in range(n_domains)]
+        self.networks = self.encoders + self.decoders
 
-        if self.n_classes == 0:
-            return super(SequentialContext, self).forward(input)
+    def forward(self, input, in_domain, out_domain):
+        encoder = self.encoders[in_domain]
+        decoder = self.decoders[out_domain]
+        return decoder.forward( encoder.forward(input) )
 
-        for module in self._modules.values():
-            if 'Conv' in module.__class__.__name__:
-                context_var = self.prepare_context(input, domain, out_domain)
-                input = torch.cat([input] + context_var, dim=1)
-            elif 'Block' in module.__class__.__name__:
-                input = (input,) + input_tuple[1:]
-            input = module(input)
-        return input
+class D_Plexer(Plexer):
+    def __init__(self, n_domains, model, model_args):
+        super(D_Plexer, self).__init__()
+        self.networks = [model(*args) for _ in range(n_domains)]
+
+    def forward(self, input, in_domain):
+        discriminator = self.networks[in_domain]
+        return discriminator.forward(input)
