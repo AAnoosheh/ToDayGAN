@@ -52,8 +52,8 @@ class CycleGANModel(BaseModel):
             self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             # initialize loss storage
-            self.loss_D, self.loss_G = [0.]*self.n_domains, [0.]*self.n_domains
-            self.loss_cycle, self.loss_idt = [0.]*self.n_domains, [0.]*self.n_domains
+            self.loss_D, self.loss_G = [0]*self.n_domains, [0]*self.n_domains
+            self.loss_cycle, self.loss_idt = [0]*self.n_domains, [0]*self.n_domains
 
         print('---------- Networks initialized -------------')
         networks.print_network(self.netG)
@@ -163,7 +163,7 @@ class CycleGANModel(BaseModel):
         self.optimizer_D.step()
 
     def get_current_errors(self):
-        extract = lambda l: [(i.data[0] if type(i) is not float else i) for i in l]
+        extract = lambda l: [(i if type(i) is int or type(i) is float else i.data[0]) for i in l]
         D_losses = extract(self.loss_D)
         G_losses = extract(self.loss_G)
         cyc_losses = extract(self.loss_cycle)
