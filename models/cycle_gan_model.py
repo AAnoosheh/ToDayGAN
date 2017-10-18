@@ -28,7 +28,6 @@ class CycleGANModel(BaseModel):
         # load/define networks
         # The naming conversion is different from those used in the paper
         # Code (paper): G (both G & F), D (both D_A & D_B)
-
         self.netG = networks.define_G(opt.input_nc, opt.output_nc,
                                       opt.ngf, opt.which_model_netG, self.n_domains, opt.norm, not opt.no_dropout, self.gpu_ids)
         if self.isTrain:
@@ -43,7 +42,7 @@ class CycleGANModel(BaseModel):
 
         if self.isTrain:
             self.old_lr = opt.lr
-            self.fake_pools = [ImagePool(opt.pool_size) for _ in self.n_domains]
+            self.fake_pools = [ImagePool(opt.pool_size) for _ in range(self.n_domains)]
             # define loss functions
             self.criterionGAN = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
             self.criterionCycle = torch.nn.L1Loss()
@@ -53,8 +52,8 @@ class CycleGANModel(BaseModel):
             self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             # initialize loss storage
-            self.loss_D, self.loss_G = [0]*self.n_domains, [0]*self.n_domains
-            self.loss_cycle, self.loss_idt = [0]*self.n_domains, [0]*self.n_domains
+            self.loss_D, self.loss_G = [0.]*self.n_domains, [0.]*self.n_domains
+            self.loss_cycle, self.loss_idt = [0.]*self.n_domains, [0.]*self.n_domains
 
         print('---------- Networks initialized -------------')
         networks.print_network(self.netG)
@@ -63,12 +62,12 @@ class CycleGANModel(BaseModel):
         print('-----------------------------------------------')
 
     def set_input(self, input):
-        input_A = self.input['A']
-        input_B = self.input['B']
+        input_A = input['A']
+        input_B = input['B']
         self.input_A.resize_(input_A.size()).copy_(input_A)
         self.input_B.resize_(input_B.size()).copy_(input_B)
-        self.DA = input['DA']
-        self.DB = input['DB']
+        self.DA = input['DA'][0]
+        self.DB = input['DB'][0]
         self.image_paths = input['path']
 
     def forward(self):
@@ -101,7 +100,7 @@ class CycleGANModel(BaseModel):
         loss_D = (loss_D_real + loss_D_fake) * 0.5
         # backward
         loss_D.backward()
-        return loss_D
+        return loss_D.data[0]
 
     def backward_D_A(self):
         fake_B = self.fake_pools[self.DB].query(self.fake_B)
@@ -137,7 +136,6 @@ class CycleGANModel(BaseModel):
         self.fake_A = self.netG.forward(self.real_B, self.DB, self.DA)
         pred_fake = self.netD.forward(self.fake_A, self.DA)
         self.loss_G[self.DB] = self.criterionGAN(pred_fake, self.DA, True)
-
         # Forward cycle loss
         self.rec_A = self.netG.forward(self.fake_B, self.DB, self.DA)
         self.loss_cycle[self.DA] = self.criterionCycle(self.rec_A, self.real_A) * lambda_A
@@ -145,9 +143,9 @@ class CycleGANModel(BaseModel):
         self.rec_B = self.netG.forward(self.fake_A, self.DA, self.DB)
         self.loss_cycle[self.DB] = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
         # combined loss
-        self.loss_G = self.loss_G[self.DA] + self.loss_G[self.DB] + self.loss_cycle[self.DA] + \
-                      self.loss_cycle[self.DB] + self.loss_idt[self.DA] + self.loss_idt[self.DB]
-        self.loss_G.backward()
+        loss_G = self.loss_G[self.DA] + self.loss_G[self.DB] + self.loss_cycle[self.DA] + \
+                 self.loss_cycle[self.DB] + self.loss_idt[self.DA] + self.loss_idt[self.DB]
+        loss_G.backward()
 
     def optimize_parameters(self):
         self.forward()
@@ -165,15 +163,15 @@ class CycleGANModel(BaseModel):
         self.optimizer_D.step()
 
     def get_current_errors(self):
-        extract = lambda l: [(i.data[0] if type(i) is not int else i) for i in l]
+        extract = lambda l: [(i.data[0] if type(i) is not float else i) for i in l]
         D_losses = extract(self.loss_D)
         G_losses = extract(self.loss_G)
-        Cyc_losses = extract(self.loss_cycle)
+        cyc_losses = extract(self.loss_cycle)
         if self.opt.identity > 0.0:
             idt_losses = extract(self.loss_idt)
-            return OrderedDict([('D', D_losses), ('G', G_losses), ('Cyc', Cyc_losses), ('idt', idt_losses)])
+            return OrderedDict([('D', D_losses), ('G', G_losses), ('Cyc', cyc_losses), ('idt', idt_losses)])
         else:
-            return OrderedDict([('D', D_losses), ('G', G_losses), ('Cyc', Cyc_losses)])
+            return OrderedDict([('D', D_losses), ('G', G_losses), ('Cyc', cyc_losses)])
 
     def get_current_visuals(self):
         real_A = util.tensor2im(self.real_A.data)
@@ -205,3 +203,4 @@ class CycleGANModel(BaseModel):
 
         print('update learning rate: %f -> %f' % (self.old_lr, lr))
         self.old_lr = lr
+
