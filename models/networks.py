@@ -22,54 +22,38 @@ def weights_init(m):
 
 def get_norm_layer(norm_type='instance'):
     if norm_type == 'batch':
-        norm_layer = functools.partial(nn.BatchNorm2d, affine=True)
+        return functools.partial(nn.BatchNorm2d, affine=True)
     elif norm_type == 'instance':
-        norm_layer = functools.partial(nn.InstanceNorm2d, affine=False)
+        return functools.partial(nn.InstanceNorm2d, affine=False)
     else:
         raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
-    return norm_layer
 
 
-def define_G(input_nc, output_nc, ngf, which_model_netG, n_domains, norm='batch', use_dropout=False, gpu_ids=[]):
-    use_gpu = len(gpu_ids) > 0
+def define_G(input_nc, output_nc, ngf, netG_n_blocks, n_domains, norm='batch', use_dropout=False, gpu_ids=[]):
     norm_layer = get_norm_layer(norm_type=norm)
-    if use_gpu:
-        assert(torch.cuda.is_available())
 
-    #TODO
-    if which_model_netG == 'resnet_9blocks':
-        enc_args = (input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, gpu_ids=gpu_ids)
-        dec_args = (input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, gpu_ids=gpu_ids)
-    elif which_model_netG == 'resnet_6blocks':
-        enc_args = (input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, gpu_ids=gpu_ids)
-        dec_args = (input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, gpu_ids=gpu_ids)
-    else:
-        raise NotImplementedError('Generator model name [%s] is not recognized' % which_model_netG)
-
+    enc_args = (input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=netG_n_blocks, gpu_ids=gpu_ids)
+    dec_args = (input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=netG_n_blocks, gpu_ids=gpu_ids)
     plex_netG = G_Plexer(n_domains, ResnetGenEncoder, ResnetGenDecoder, enc_args, dec_args)
-    #TODO
-    if use_gpu:
+
+    if len(gpu_ids) > 0:
+        assert(torch.cuda.is_available())
         plex_netG.set_gpu(gpu_ids[0])
+
     plex_netG.apply(weights_init)
     return plex_netG
 
 
-def define_D(input_nc, ndf, which_model_netD, n_domains, n_layers_D=3, norm='batch', use_sigmoid=False, gpu_ids=[]):
+def define_D(input_nc, ndf, netD_n_layers, n_domains, norm='batch', use_sigmoid=False, gpu_ids=[]):
     norm_layer = get_norm_layer(norm_type=norm)
-    use_gpu = len(gpu_ids) > 0
-    if use_gpu:
-        assert(torch.cuda.is_available())
 
-    if which_model_netD == 'basic':
-        model_args = (input_nc, ndf, n_layers=3, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
-    elif which_model_netD == 'n_layers':
-        model_args = (input_nc, ndf, n_layers_D, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
-    else:
-        raise NotImplementedError('Discriminator model name [%s] is not recognized' % which_model_netD)
-
+    model_args = (input_nc, ndf, n_layers=netD_n_layers, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
     plex_netD = D_Plexer(n_domains, NLayerDiscriminator, model_args)
-    if use_gpu:
+
+    if len(gpu_ids) > 0:
+        assert(torch.cuda.is_available())
         plex_netD.set_gpu(gpu_ids[0])
+
     plex_netD.apply(weights_init)
     return plex_netD
 

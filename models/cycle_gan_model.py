@@ -27,11 +27,11 @@ class CycleGANModel(BaseModel):
         # load/define networks
         # The naming conversion is different from those used in the paper
         # Code (paper): G (both G & F), D (both D_A & D_B)
-        self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf,
-                                      opt.which_model_netG, self.n_domains, opt.norm, not opt.no_dropout, self.gpu_ids)
+        self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG_n_blocks,
+                                      self.n_domains, opt.norm, not opt.no_dropout, self.gpu_ids)
         if self.isTrain:
-            self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.which_model_netD,
-                                          self.n_domains, opt.n_layers_D, opt.norm, opt.no_lsgan, self.gpu_ids)
+            self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.netD_n_layers,
+                                          self.n_domains, opt.norm, opt.no_lsgan, self.gpu_ids)
 
         if not self.isTrain or opt.continue_train:
             which_epoch = opt.which_epoch
