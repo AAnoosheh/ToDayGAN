@@ -75,17 +75,17 @@ class CycleGANModel(BaseModel):
         self.real_B = Variable(self.input_B)
 
     def test(self):
-        #TODO
-        self.real_A = Variable(self.input_A, volatile=True)
-        self.fake_B = self.netG.forward(self.real_A, self.DA, self.DB)
-        self.rec_A = self.netG.forward(self.fake_B, self.DB, self.DA)
+        real = Variable(self.input_A, volatile=True)
+        self.visuals = [real]
+        self.labels = ['real_%d' % self.DA]
 
-        self.real_B = Variable(self.input_B, volatile=True)
-        self.fake_A = self.netG.forward(self.real_B, self.DB, self.DA)
-        self.rec_B = self.netG.forward(self.fake_A, self.DA, self.DB)
-        #TODO
+        for d in range(self.n_domains):
+            if d != self.DA:
+                fake = self.netG.forward(real, self.DA, d)
+                rec = self.netG.forward(fake, d, self.DA)
+                self.visuals += [fake, rec]
+                self.labels += ['fake_%d' % d, 'rec_%d' % d]
 
-    # get image paths
     def get_image_paths(self):
         return self.image_paths
 
@@ -173,21 +173,16 @@ class CycleGANModel(BaseModel):
         else:
             return OrderedDict([('D', D_losses), ('G', G_losses), ('Cyc', cyc_losses)])
 
-    def get_current_visuals(self):
-        real_A = util.tensor2im(self.real_A.data)
-        fake_B = util.tensor2im(self.fake_B.data)
-        rec_A = util.tensor2im(self.rec_A.data)
-        real_B = util.tensor2im(self.real_B.data)
-        fake_A = util.tensor2im(self.fake_A.data)
-        rec_B = util.tensor2im(self.rec_B.data)
-        if self.opt.identity > 0.0:
-            idt_A = util.tensor2im(self.idt_A.data)
-            idt_B = util.tensor2im(self.idt_B.data)
-            return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('rec_A', rec_A), ('idt_B', idt_B),
-                                ('real_B', real_B), ('fake_A', fake_A), ('rec_B', rec_B), ('idt_A', idt_A)])
-        else:
-            return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('rec_A', rec_A),
-                                ('real_B', real_B), ('fake_A', fake_A), ('rec_B', rec_B)])
+    def get_current_visuals(self, testing=False):
+        if not testing:
+            self.visuals = [self.real_A, self.fake_B, self.rec_A, self.real_B, self.fake_A, self.rec_B]
+            self.labels = ['real_A', 'fake_B', 'rec_A', 'real_B', 'fake_A', 'rec_B']
+            if self.opt.identity > 0.0:
+                self.visuals += [self.idt_A, self.idt_B]
+                self.labels += ['idt_A', 'idt_B']
+
+        images = [util.tensor2im(v.data) for v in self.visuals]
+        return OrderedDict(zip(self.labels, images))
 
     def save(self, label):
         self.save_network(self.netG, 'G', label, self.gpu_ids)
@@ -203,4 +198,3 @@ class CycleGANModel(BaseModel):
 
         print('update learning rate: %f -> %f' % (self.old_lr, lr))
         self.old_lr = lr
-

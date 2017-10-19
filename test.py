@@ -25,7 +25,7 @@ for i, data in enumerate(dataset):
         break
     model.set_input(data)
     model.test()
-    visuals = model.get_current_visuals()
+    visuals = model.get_current_visuals(testing=True)
     img_path = model.get_image_paths()
     print('process image... %s' % img_path)
     visualizer.save_images(webpage, visuals, img_path)
