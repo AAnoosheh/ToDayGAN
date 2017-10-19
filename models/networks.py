@@ -31,9 +31,11 @@ def get_norm_layer(norm_type='instance'):
 
 def define_G(input_nc, output_nc, ngf, netG_n_blocks, n_domains, norm='batch', use_dropout=False, gpu_ids=[]):
     norm_layer = get_norm_layer(norm_type=norm)
+    n_blocks_dec = netG_n_blocks // 2
+    n_blocks_enc = netG_n_blocks - n_blocks_dec
 
-    enc_args = (input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=netG_n_blocks, gpu_ids=gpu_ids)
-    dec_args = (input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=netG_n_blocks, gpu_ids=gpu_ids)
+    enc_args = (input_nc, ngf, norm_layer, use_dropout, n_blocks_enc, gpu_ids)
+    dec_args = (output_nc, ngf, norm_layer, use_dropout, n_blocks_dec, gpu_ids)
     plex_netG = G_Plexer(n_domains, ResnetGenEncoder, ResnetGenDecoder, enc_args, dec_args)
 
     if len(gpu_ids) > 0:
@@ -47,7 +49,7 @@ def define_G(input_nc, output_nc, ngf, netG_n_blocks, n_domains, norm='batch', u
 def define_D(input_nc, ndf, netD_n_layers, n_domains, norm='batch', use_sigmoid=False, gpu_ids=[]):
     norm_layer = get_norm_layer(norm_type=norm)
 
-    model_args = (input_nc, ndf, n_layers=netD_n_layers, norm_layer=norm_layer, use_sigmoid=use_sigmoid, gpu_ids=gpu_ids)
+    model_args = (input_nc, ndf, netD_n_layers, norm_layer, use_sigmoid, gpu_ids)
     plex_netD = D_Plexer(n_domains, NLayerDiscriminator, model_args)
 
     if len(gpu_ids) > 0:
@@ -102,12 +104,11 @@ class GANLoss(nn.Module):
 # downsampling/upsampling operations.
 # Code and idea originally from Justin Johnson's architecture.
 # https://github.com/jcjohnson/fast-neural-style/
-class ResnetGenerator(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d,
-                 use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect'):
+class ResnetGenEncoder(nn.Module):
+    def __init__(self, input_nc, ngf=64, norm_layer=nn.BatchNorm2d,
+                 use_dropout=False, n_blocks=5, gpu_ids=[], padding_type='reflect'):
         assert(n_blocks >= 0)
         super(ResnetGenerator, self).__init__()
-        self.ngf = ngf
         self.gpu_ids = gpu_ids
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
@@ -133,6 +134,32 @@ class ResnetGenerator(nn.Module):
             model += [ResnetBlock(ngf * mult, padding_type=padding_type,
                                   norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
 
+        self.model = nn.Sequential(*model)
+
+    def forward(self, input):
+        if self.gpu_ids and isinstance(input.data, torch.cuda.FloatTensor):
+            return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
+        return self.model(input)
+
+class ResnetGenDecoder(nn.Module):
+    def __init__(self, output_nc, ngf=64, norm_layer=nn.BatchNorm2d,
+                 use_dropout=False, n_blocks=4, gpu_ids=[], padding_type='reflect'):
+        assert(n_blocks >= 0)
+        super(ResnetGenerator, self).__init__()
+        self.gpu_ids = gpu_ids
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+
+        model = []
+        n_downsampling = 2
+        mult = 2**n_downsampling
+
+        for i in range(n_blocks):
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type,
+                                  norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+
         for i in range(n_downsampling):
             mult = 2**(n_downsampling - i)
             model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
@@ -141,9 +168,10 @@ class ResnetGenerator(nn.Module):
                                          bias=use_bias),
                       norm_layer(int(ngf * mult / 2)),
                       nn.ReLU(True)]
-        model += [nn.ReflectionPad2d(3)]
-        model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
-        model += [nn.Tanh()]
+
+        model += [nn.ReflectionPad2d(3),
+                  nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0),
+                  nn.Tanh()]
 
         self.model = nn.Sequential(*model)
 
