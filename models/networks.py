@@ -4,6 +4,7 @@ from torch.nn import init
 import functools
 from torch.autograd import Variable
 import numpy as np
+import itertools
 ###############################################################################
 # Functions
 ###############################################################################
@@ -85,19 +86,17 @@ class GANLoss(nn.Module):
         self.loss = nn.MSELoss() if use_lsgan else nn.BCELoss()
 
     def get_target_tensor(self, input, is_real):
-        input_slice = input[:,0,:,:]
-        if self.label_real is None or self.label_real.numel() != input_slice.numel():
-            self.label_real = Variable(self.Tensor(input_slice.size()).fill_(1.0), requires_grad=False)
-            self.label_fake = Variable(self.Tensor(input_slice.size()).fill_(0.0), requires_grad=False)
+        if self.label_real is None or self.label_real.numel() != input.numel():
+            self.label_real = Variable(self.Tensor(input.size()).fill_(1.0), requires_grad=False)
+            self.label_fake = Variable(self.Tensor(input.size()).fill_(0.0), requires_grad=False)
 
         if is_real:
             return self.label_real
         return self.label_fake
 
-    def __call__(self, input, target_class, is_real):
+    def __call__(self, input, is_real):
         label_var = self.get_target_tensor(input, is_real)
-        target_input_slice = input[:,target_class,:,:]
-        return self.loss(target_input_slice, label_var)
+        return self.loss(input, label_var)
 
 
 # Defines the generator that consists of Resnet blocks between a few
@@ -108,7 +107,7 @@ class ResnetGenEncoder(nn.Module):
     def __init__(self, input_nc, ngf=64, norm_layer=nn.BatchNorm2d,
                  use_dropout=False, n_blocks=5, gpu_ids=[], padding_type='reflect'):
         assert(n_blocks >= 0)
-        super(ResnetGenerator, self).__init__()
+        super(ResnetGenEncoder, self).__init__()
         self.gpu_ids = gpu_ids
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
@@ -145,7 +144,7 @@ class ResnetGenDecoder(nn.Module):
     def __init__(self, output_nc, ngf=64, norm_layer=nn.BatchNorm2d,
                  use_dropout=False, n_blocks=4, gpu_ids=[], padding_type='reflect'):
         assert(n_blocks >= 0)
-        super(ResnetGenerator, self).__init__()
+        super(ResnetGenDecoder, self).__init__()
         self.gpu_ids = gpu_ids
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
@@ -279,13 +278,17 @@ class Plexer(nn.Module):
     def __init__(self):
         super(Plexer, self).__init__()
 
-    def apply(func):
+    def apply(self, func):
         for net in self.networks:
             net.apply(func)
 
-    def set_gpu(gpu_id):
+    def set_gpu(self, gpu_id):
         for net in self.networks:
             net.cuda(device_id=gpu_id)
+
+    def parameters(self):
+        params = [n.parameters() for n in self.networks]
+        return itertools.chain(*params)
 
 class G_Plexer(Plexer):
     def __init__(self, n_domains, encoder, decoder, enc_args, dec_args):
@@ -302,7 +305,7 @@ class G_Plexer(Plexer):
 class D_Plexer(Plexer):
     def __init__(self, n_domains, model, model_args):
         super(D_Plexer, self).__init__()
-        self.networks = [model(*args) for _ in range(n_domains)]
+        self.networks = [model(*model_args) for _ in range(n_domains)]
 
     def forward(self, input, in_domain):
         discriminator = self.networks[in_domain]

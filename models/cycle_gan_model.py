@@ -3,7 +3,6 @@ import torch
 import os
 from collections import OrderedDict
 from torch.autograd import Variable
-import itertools
 import util.util as util
 from util.image_pool import ImagePool
 from .base_model import BaseModel
@@ -91,10 +90,10 @@ class CycleGANModel(BaseModel):
     def backward_D_basic(self, real, fake, domain):
         # Real
         pred_real = self.netD.forward(real, domain)
-        loss_D_real = self.criterionGAN(pred_real, domain, True)
+        loss_D_real = self.criterionGAN(pred_real, True)
         # Fake
         pred_fake = self.netD.forward(fake.detach(), domain)
-        loss_D_fake = self.criterionGAN(pred_fake, domain, False)
+        loss_D_fake = self.criterionGAN(pred_fake, False)
         # Combined loss
         loss_D = (loss_D_real + loss_D_fake) * 0.5
         # backward
@@ -131,12 +130,11 @@ class CycleGANModel(BaseModel):
         # D_A(G_A(A))
         self.fake_B = self.netG.forward(self.real_A, self.DA, self.DB)
         pred_fake = self.netD.forward(self.fake_B, self.DB)
-        self.loss_G[self.DA] = self.criterionGAN(pred_fake, self.DB, True)
+        self.loss_G[self.DA] = self.criterionGAN(pred_fake, True)
         # D_B(G_B(B))
         self.fake_A = self.netG.forward(self.real_B, self.DB, self.DA)
         pred_fake = self.netD.forward(self.fake_A, self.DA)
-        self.loss_G[self.DB] = self.criterionGAN(pred_fake, self.DA, True)
-
+        self.loss_G[self.DB] = self.criterionGAN(pred_fake, True)
         # Forward cycle loss
         self.rec_A = self.netG.forward(self.fake_B, self.DB, self.DA)
         self.loss_cycle[self.DA] = self.criterionCycle(self.rec_A, self.real_A) * lambda_A
@@ -165,9 +163,7 @@ class CycleGANModel(BaseModel):
         # D_A
         self.optimizer_D.zero_grad()
         self.backward_D_A()
-        self.optimizer_D.step()
         # D_B
-        self.optimizer_D.zero_grad()
         self.backward_D_B()
         self.optimizer_D.step()
 
