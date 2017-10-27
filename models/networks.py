@@ -41,7 +41,7 @@ def define_G(input_nc, output_nc, ngf, netG_n_blocks, n_domains, norm='batch', u
 
     if len(gpu_ids) > 0:
         assert(torch.cuda.is_available())
-        plex_netG.set_gpu(gpu_ids[0])
+        plex_netG.cuda(gpu_ids[0])
 
     plex_netG.apply(weights_init)
     return plex_netG
@@ -55,7 +55,7 @@ def define_D(input_nc, ndf, netD_n_layers, n_domains, norm='batch', use_sigmoid=
 
     if len(gpu_ids) > 0:
         assert(torch.cuda.is_available())
-        plex_netD.set_gpu(gpu_ids[0])
+        plex_netD.cuda(gpu_ids[0])
 
     plex_netD.apply(weights_init)
     return plex_netD
@@ -282,13 +282,23 @@ class Plexer(nn.Module):
         for net in self.networks:
             net.apply(func)
 
-    def set_gpu(self, gpu_id):
+    def cuda(self, device_id):
         for net in self.networks:
-            net.cuda(device_id=gpu_id)
+            net.cuda(device_id=device_id)
 
     def parameters(self):
         params = [n.parameters() for n in self.networks]
         return itertools.chain(*params)
+
+    def save(self, save_path):
+        for i, net in enumerate(self.networks):
+            filename = save_path + ('%d.pth' % i)
+            torch.save(net.cpu().state_dict(), filename)
+
+    def load(self, save_path):
+        for i, net in enumerate(self.networks):
+            filename = save_path + ('%d.pth' % i)
+            net.load_state_dict(torch.load(filename))
 
 class G_Plexer(Plexer):
     def __init__(self, n_domains, encoder, decoder, enc_args, dec_args):
