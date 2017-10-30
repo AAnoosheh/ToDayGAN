@@ -47,8 +47,8 @@ class CycleGANModel(BaseModel):
             self.criterionIdt = torch.nn.L1Loss()
             self.downsample = torch.nn.AvgPool2d(3, stride=4)
             # initialize optimizers
-            self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
-            self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.netG.init_optimizers(torch.optim.Adam, opt.lr, (opt.beta1, 0.999))
+            self.netD.init_optimizers(torch.optim.Adam, opt.lr, (opt.beta1, 0.999))
             # initialize loss storage
             self.loss_D, self.loss_G = [0]*self.n_domains, [0]*self.n_domains
             self.loss_cycle, self.loss_idt = [0]*self.n_domains, [0]*self.n_domains
@@ -100,11 +100,11 @@ class CycleGANModel(BaseModel):
         loss_D.backward()
         return loss_D
 
-    def backward_D_A(self):
+    def backward_D(self):
+        #D_A
         fake_B = self.fake_pools[self.DB].query(self.fake_B)
         self.loss_D[self.DA] = self.backward_D_basic(self.real_B, fake_B, self.DB)
-
-    def backward_D_B(self):
+        #D_B
         fake_A = self.fake_pools[self.DA].query(self.fake_A)
         self.loss_D[self.DB] = self.backward_D_basic(self.real_A, fake_A, self.DA)
 
@@ -157,15 +157,13 @@ class CycleGANModel(BaseModel):
     def optimize_parameters(self):
         self.forward()
         # G_A and G_B
-        self.optimizer_G.zero_grad()
+        self.netG.zero_grads(self.DA, self.DB)
         self.backward_G()
-        self.optimizer_G.step()
-        # D_A
-        self.optimizer_D.zero_grad()
-        self.backward_D_A()
-        # D_B
-        self.backward_D_B()
-        self.optimizer_D.step()
+        self.netG.step_grads(self.DA, self.DB)
+        # D_A and D_B
+        self.netD.zero_grads(self.DA, self.DB)
+        self.backward_D()
+        self.netD.step_grads(self.DA, self.DB)
 
     def get_current_errors(self):
         extract = lambda l: [(i if type(i) is int or type(i) is float else i.data[0]) for i in l]
@@ -196,10 +194,10 @@ class CycleGANModel(BaseModel):
     def update_learning_rate(self):
         lrd = self.opt.lr / self.opt.niter_decay
         lr = self.old_lr - lrd
-        for param_group in self.optimizer_D.param_groups:
-            param_group['lr'] = lr
-        for param_group in self.optimizer_G.param_groups:
-            param_group['lr'] = lr
+
+        self.netG.update_lr(lr)
+        self.netD.update_lr(lr)
 
         print('update learning rate: %f -> %f' % (self.old_lr, lr))
         self.old_lr = lr
+

@@ -1,10 +1,9 @@
 import torch
 import torch.nn as nn
 from torch.nn import init
-import functools
+import functools, itertools
 from torch.autograd import Variable
 import numpy as np
-import itertools
 ###############################################################################
 # Functions
 ###############################################################################
@@ -61,11 +60,12 @@ def define_D(input_nc, ndf, netD_n_layers, n_domains, norm='batch', use_sigmoid=
     return plex_netD
 
 
-def print_network(net):
+def print_network(plexer_net):
     num_params = 0
-    for param in net.parameters():
-        num_params += param.numel()
-    print(net)
+    for net in plexer_net.networks:
+        for param in net.parameters():
+            num_params += param.numel()
+        print(net)
     print('Total number of parameters: %d' % num_params)
 
 
@@ -286,9 +286,18 @@ class Plexer(nn.Module):
         for net in self.networks:
             net.cuda(device_id=device_id)
 
-    def parameters(self):
-        params = [n.parameters() for n in self.networks]
-        return itertools.chain(*params)
+    def zero_grads(self, dom_a, dom_b):
+        self.optimizers[dom_a].zero_grad()
+        self.optimizers[dom_b].zero_grad()
+
+    def step_grads(self, dom_a, dom_b):
+        self.optimizers[dom_a].step()
+        self.optimizers[dom_b].step()
+
+    def update_lr(self, new_lr):
+        for opt in self.optimizers:
+            for param_group in opt.param_groups:
+                param_group['lr'] = new_lr
 
     def save(self, save_path):
         for i, net in enumerate(self.networks):
@@ -307,6 +316,12 @@ class G_Plexer(Plexer):
         self.decoders = [decoder(*dec_args) for _ in range(n_domains)]
         self.networks = self.encoders + self.decoders
 
+    def init_optimizers(self, opt, lr, betas):
+        self.optimizers = []
+        for enc, dec in zip(self.encoders, self.decoders):
+            params = itertools.chain(enc.parameters(), dec.parameters())
+            self.optimizers.append( opt(params, lr=lr, betas=betas) )
+
     def forward(self, input, in_domain, out_domain):
         encoder = self.encoders[in_domain]
         decoder = self.decoders[out_domain]
@@ -317,6 +332,11 @@ class D_Plexer(Plexer):
         super(D_Plexer, self).__init__()
         self.networks = [model(*model_args) for _ in range(n_domains)]
 
+    def init_optimizers(self, opt, lr, betas):
+        self.optimizers = [opt(net.parameters(), lr=lr, betas=betas) \
+                           for net in self.networks]
+
     def forward(self, input, in_domain):
         discriminator = self.networks[in_domain]
         return discriminator.forward(input)
+
