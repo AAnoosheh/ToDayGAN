@@ -21,9 +21,8 @@ class CycleGANModel(BaseModel):
         self.n_domains = opt.n_domains
         self.DA, self.DB = None, None
 
-        nb, size = opt.batchSize, opt.fineSize
-        self.input_A = self.Tensor(nb, opt.input_nc, size, size)
-        self.input_B = self.Tensor(nb, opt.output_nc, size, size)
+        self.input_A = self.Tensor(opt.batchSize, opt.input_nc, opt.fineSize, opt.fineSize)
+        self.input_B = self.Tensor(opt.batchSize, opt.output_nc, opt.fineSize, opt.fineSize)
 
         # load/define networks
         # The naming conversion is different from those used in the paper
@@ -100,7 +99,7 @@ class CycleGANModel(BaseModel):
         loss_D = (loss_D_real + loss_D_fake) * 0.5
         # backward
         loss_D.backward()
-        return loss_D.data[0]
+        return loss_D
 
     def backward_D_A(self):
         fake_B = self.fake_pools[self.DB].query(self.fake_B)

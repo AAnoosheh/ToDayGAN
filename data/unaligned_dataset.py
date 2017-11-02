@@ -23,7 +23,7 @@ class UnalignedDataset(BaseDataset):
         # Choose two of our domains to perform a pass on
         DA, DB = random.sample(range(len(self.dirs)), 2)
 
-        index_A = index % self.sizes[DA]
+        index_A = random.randint(0, self.sizes[DA] - 1)
         index_B = random.randint(0, self.sizes[DB] - 1)
 
         A_path = self.paths[DA][index_A]
