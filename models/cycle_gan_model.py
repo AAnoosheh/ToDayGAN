@@ -116,11 +116,10 @@ class CycleGANModel(BaseModel):
 
         # Identity loss
         if lambda_idt > 0:
-            # G_A should be identity if real_B is fed.
-            self.idt_A = self.netG.forward(self.real_B, self.DA, self.DB)
+            # Same encoder and decoder should recreate image
+            self.idt_A = self.netG.autoencode(self.real_A, self.DA)
             self.loss_idt[self.DA] = self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
-            # G_B should be identity if real_A is fed.
-            self.idt_B = self.netG.forward(self.real_A, self.DB, self.DA)
+            self.idt_B = self.netG.autoencode(self.real_B, self.DB)
             self.loss_idt[self.DB] = self.criterionIdt(self.idt_B, self.real_A) * lambda_A * lambda_idt
         else:
             self.loss_idt[self.DA] = 0

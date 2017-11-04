@@ -327,6 +327,11 @@ class G_Plexer(Plexer):
         decoder = self.decoders[out_domain]
         return decoder.forward( encoder.forward(input) )
 
+    def autoencode(self, input, domain):
+        encoder = self.encoders[domain]
+        decoder = self.decoders[domain]
+        return decoder.forward( encoder.forward(input) )
+
 class D_Plexer(Plexer):
     def __init__(self, n_domains, model, model_args):
         super(D_Plexer, self).__init__()
@@ -339,4 +344,3 @@ class D_Plexer(Plexer):
     def forward(self, input, in_domain):
         discriminator = self.networks[in_domain]
         return discriminator.forward(input)
-
