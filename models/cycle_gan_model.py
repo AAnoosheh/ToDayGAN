@@ -46,7 +46,7 @@ class CycleGANModel(BaseModel):
             self.criterionGAN = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
-            self.downsample_image = torch.nn.AvgPool2d(3,stride=4)
+            self.downsample = torch.nn.AvgPool2d(3, stride=4)
             # initialize optimizers
             self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -113,6 +113,7 @@ class CycleGANModel(BaseModel):
         lambda_A = self.opt.lambda_A
         lambda_B = self.opt.lambda_B
         lambda_idt = self.opt.identity
+        lambda_fwd = self.opt.lambda_forward
 
         # Identity loss
         if lambda_idt > 0:
@@ -135,15 +136,24 @@ class CycleGANModel(BaseModel):
         self.fake_A = self.netG.forward(self.real_B, self.DB, self.DA)
         pred_fake = self.netD.forward(self.fake_A, self.DA)
         self.loss_G[self.DB] = self.criterionGAN(pred_fake, self.DA, True)
+
         # Forward cycle loss
         self.rec_A = self.netG.forward(self.fake_B, self.DB, self.DA)
         self.loss_cycle[self.DA] = self.criterionCycle(self.rec_A, self.real_A) * lambda_A
         # Backward cycle loss
         self.rec_B = self.netG.forward(self.fake_A, self.DA, self.DB)
         self.loss_cycle[self.DB] = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
+
+        # Optional loss on downsampled image before and after
+        if lambda_fwd > 0:
+            loss_fwd_A = self.criterionIdt(self.downsample(self.fake_B), self.downsample(self.real_A)) * lambda_fwd
+            loss_fwd_B = self.criterionIdt(self.downsample(self.fake_A), self.downsample(self.real_B)) * lambda_fwd
+        else:
+            loss_fwd_A, loss_fwd_B = 0, 0
+
         # combined loss
-        loss_G = self.loss_G[self.DA] + self.loss_G[self.DB] + self.loss_cycle[self.DA] + \
-                 self.loss_cycle[self.DB] + self.loss_idt[self.DA] + self.loss_idt[self.DB]
+        loss_G = self.loss_G[self.DA] + self.loss_G[self.DB] + self.loss_cycle[self.DA] + self.loss_cycle[self.DB] + \
+                 self.loss_idt[self.DA] + self.loss_idt[self.DB] + loss_fwd_A + loss_fwd_B
         loss_G.backward()
 
     def optimize_parameters(self):
