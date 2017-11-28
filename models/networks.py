@@ -31,8 +31,8 @@ def get_norm_layer(norm_type='instance'):
 
 def define_G(input_nc, output_nc, ngf, netG_n_blocks, n_domains, norm='batch', use_dropout=False, gpu_ids=[]):
     norm_layer = get_norm_layer(norm_type=norm)
-    n_blocks_dec = netG_n_blocks // 2
-    n_blocks_enc = netG_n_blocks - n_blocks_dec
+    n_blocks_enc = netG_n_blocks // 2
+    n_blocks_dec = netG_n_blocks - n_blocks_enc
 
     enc_args = (input_nc, ngf, norm_layer, use_dropout, n_blocks_enc, gpu_ids)
     dec_args = (output_nc, ngf, norm_layer, use_dropout, n_blocks_dec, gpu_ids)
@@ -105,7 +105,7 @@ class GANLoss(nn.Module):
 # https://github.com/jcjohnson/fast-neural-style/
 class ResnetGenEncoder(nn.Module):
     def __init__(self, input_nc, ngf=64, norm_layer=nn.BatchNorm2d,
-                 use_dropout=False, n_blocks=5, gpu_ids=[], padding_type='reflect'):
+                 use_dropout=False, n_blocks=4, gpu_ids=[], padding_type='reflect'):
         assert(n_blocks >= 0)
         super(ResnetGenEncoder, self).__init__()
         self.gpu_ids = gpu_ids
@@ -142,7 +142,7 @@ class ResnetGenEncoder(nn.Module):
 
 class ResnetGenDecoder(nn.Module):
     def __init__(self, output_nc, ngf=64, norm_layer=nn.BatchNorm2d,
-                 use_dropout=False, n_blocks=4, gpu_ids=[], padding_type='reflect'):
+                 use_dropout=False, n_blocks=5, gpu_ids=[], padding_type='reflect'):
         assert(n_blocks >= 0)
         super(ResnetGenDecoder, self).__init__()
         self.gpu_ids = gpu_ids
