@@ -78,11 +78,13 @@ class CycleGANModel(BaseModel):
         self.labels = ['real_%d' % self.DA]
 
         for d in range(self.n_domains):
-            if d != self.DA:
-                fake = self.netG.forward(real, self.DA, d)
+            fake = self.netG.forward(real, self.DA, d)
+            self.visuals.append( fake )
+            self.labels.append( 'fake_%d' % d )
+            if opt.reconstruct:
                 rec = self.netG.forward(fake, d, self.DA)
-                self.visuals += [fake, rec]
-                self.labels += ['fake_%d' % d, 'rec_%d' % d]
+                self.visuals.append( rec )
+                self.labels.append( 'rec_%d' % d )
 
     def get_image_paths(self):
         return self.image_paths
