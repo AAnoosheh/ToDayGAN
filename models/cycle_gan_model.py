@@ -61,11 +61,12 @@ class CycleGANModel(BaseModel):
 
     def set_input(self, input):
         input_A = input['A']
-        input_B = input['B']
         self.input_A.resize_(input_A.size()).copy_(input_A)
-        self.input_B.resize_(input_B.size()).copy_(input_B)
         self.DA = input['DA'][0]
-        self.DB = input['DB'][0]
+        if self.isTrain:
+            input_B = input['B']
+            self.input_B.resize_(input_B.size()).copy_(input_B)
+            self.DB = input['DB'][0]
         self.image_paths = input['path']
 
     def forward(self):
