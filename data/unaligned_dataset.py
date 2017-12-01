@@ -23,9 +23,14 @@ class UnalignedDataset(BaseDataset):
         return img, path
 
     def __getitem__(self, index):
-        if not self.opt.isTrain and self.opt.serial_test:  # for test-time only
+        if not self.opt.isTrain:
+            # Choice of domain order sequential during test
             DA = index % len(self.dirs)
-            index_A = index // len(self.dirs)
+            # Choice of image within domain not always ordered
+            if self.opt.serial_test:
+                index_A = index // len(self.dirs)
+            else:
+                index_A = random.randint(0, self.sizes[DA] - 1)
         else:
             # Choose two of our domains to perform a pass on
             DA, DB = random.sample(range(len(self.dirs)), 2)

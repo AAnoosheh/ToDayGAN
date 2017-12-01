@@ -18,6 +18,9 @@ visualizer = Visualizer(opt)
 # create website
 web_dir = os.path.join(opt.results_dir, opt.name, '%s_%s' % (opt.phase, opt.which_epoch))
 webpage = html.HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.which_epoch))
+# store images for matrix visualization
+vis_buffer = []
+
 # test
 for i, data in enumerate(dataset):
     if i >= opt.how_many:
@@ -29,4 +32,12 @@ for i, data in enumerate(dataset):
     print('process image... %s' % img_path)
     visualizer.save_images(webpage, visuals, img_path)
 
+    if opt.show_matrix:
+        vis_buffer.append(visuals)
+        if (i+1) % opt.n_domains == 0:
+            save_path = os.path.join(web_dir, 'mat_%d.png' % (i//opt.n_domains))
+            visualizer.save_image_matrix(vis_buffer, save_path)
+            vis_buffer.clear()
+
 webpage.save()
+

@@ -82,7 +82,7 @@ class CycleGANModel(BaseModel):
             fake = self.netG.forward(real, self.DA, d)
             self.visuals.append( fake )
             self.labels.append( 'fake_%d' % d )
-            if opt.reconstruct:
+            if self.opt.reconstruct:
                 rec = self.netG.forward(fake, d, self.DA)
                 self.visuals.append( rec )
                 self.labels.append( 'rec_%d' % d )
