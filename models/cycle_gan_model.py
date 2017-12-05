@@ -121,9 +121,9 @@ class CycleGANModel(BaseModel):
         if lambda_idt > 0:
             # Same encoder and decoder should recreate image
             self.idt_A = self.netG.autoencode(self.real_A, self.DA)
-            self.loss_idt[self.DA] = self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
+            self.loss_idt[self.DA] = self.criterionIdt(self.idt_A, self.real_A) * lambda_A * lambda_idt
             self.idt_B = self.netG.autoencode(self.real_B, self.DB)
-            self.loss_idt[self.DB] = self.criterionIdt(self.idt_B, self.real_A) * lambda_A * lambda_idt
+            self.loss_idt[self.DB] = self.criterionIdt(self.idt_B, self.real_B) * lambda_B * lambda_idt
         else:
             self.loss_idt[self.DA] = 0
             self.loss_idt[self.DB] = 0
