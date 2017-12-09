@@ -327,6 +327,14 @@ class G_Plexer(Plexer):
         decoder = self.decoders[out_domain]
         return decoder.forward( encoder.forward(input) )
 
+    def encode(self, input, domain):
+        encoder = self.encoders[domain]
+        return encoder.forward(input)
+
+    def decode(self, input, domain):
+        decoder = self.decoders[domain]
+        return decoder.forward(input)
+
     def autoencode(self, input, domain):
         encoder = self.encoders[domain]
         decoder = self.decoders[domain]

@@ -78,8 +78,10 @@ class CycleGANModel(BaseModel):
         self.visuals = [real]
         self.labels = ['real_%d' % self.DA]
 
+        # cache encoding to not repeat it everytime
+        encoded = self.netG.encode(real, self.DA)
         for d in range(self.n_domains):
-            fake = self.netG.forward(real, self.DA, d)
+            fake = self.netG.decode(encoded, d)
             self.visuals.append( fake )
             self.labels.append( 'fake_%d' % d )
             if self.opt.reconstruct:

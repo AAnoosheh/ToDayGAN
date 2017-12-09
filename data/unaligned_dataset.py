@@ -47,7 +47,9 @@ class UnalignedDataset(BaseDataset):
         return bundle
 
     def __len__(self):
-        return max(self.sizes)
+        if self.opt.isTrain:
+            return max(self.sizes)
+        return sum(self.sizes)
 
     def name(self):
         return 'UnalignedDataset'
