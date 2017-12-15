@@ -35,7 +35,6 @@ class ComboGANModel(BaseModel):
                 self.load_network(self.netD, 'D', which_epoch)
 
         if self.isTrain:
-            self.old_lr = opt.lr
             self.fake_pools = [ImagePool(opt.pool_size) for _ in range(self.n_domains)]
             # define loss functions
             self.criterionGAN = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
@@ -190,12 +189,7 @@ class ComboGANModel(BaseModel):
         self.save_network(self.netG, 'G', label, self.gpu_ids)
         self.save_network(self.netD, 'D', label, self.gpu_ids)
 
-    def update_learning_rate(self):
-        lrd = self.opt.lr / self.opt.niter_decay
-        lr = self.old_lr - lrd
-
-        self.netG.update_lr(lr)
-        self.netD.update_lr(lr)
-
-        print('update learning rate: %f -> %f' % (self.old_lr, lr))
-        self.old_lr = lr
+    def update_learning_rate(self, new_lr):
+        self.netG.update_lr(new_lr)
+        self.netD.update_lr(new_lr)
+        print('updated learning rate: %f' % new_lr)
