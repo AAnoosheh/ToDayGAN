@@ -4,9 +4,8 @@ from torch.nn import init
 import functools, itertools
 from torch.autograd import Variable
 import numpy as np
-###############################################################################
-# Functions
-###############################################################################
+
+
 
 
 def weights_init(m):
@@ -284,7 +283,7 @@ class Plexer(nn.Module):
 
     def cuda(self, device_id):
         for net in self.networks:
-            net.cuda(device_id=device_id)
+            net.cuda(device_id)
 
     def zero_grads(self, dom_a, dom_b):
         self.optimizers[dom_a].zero_grad()

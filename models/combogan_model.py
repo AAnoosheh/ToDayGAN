@@ -1,21 +1,19 @@
 import numpy as np
 import torch
-import os
 from collections import OrderedDict
 from torch.autograd import Variable
 import util.util as util
 from util.image_pool import ImagePool
 from .base_model import BaseModel
 from . import networks
-import sys
 
 
-class CycleGANModel(BaseModel):
+class ComboGANModel(BaseModel):
     def name(self):
-        return 'CycleGANModel'
+        return 'ComboGANModel'
 
-    def initialize(self, opt):
-        BaseModel.initialize(self, opt)
+    def __init__(self, opt):
+        super(ComboGANModel, self).__init__(opt)
 
         self.n_domains = opt.n_domains
         self.DA, self.DB = None, None
@@ -24,10 +22,8 @@ class CycleGANModel(BaseModel):
         self.input_B = self.Tensor(opt.batchSize, opt.output_nc, opt.fineSize, opt.fineSize)
 
         # load/define networks
-        # The naming conversion is different from those used in the paper
-        # Code (paper): G (both G & F), D (both D_A & D_B)
         self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG_n_blocks,
-                                      self.n_domains, opt.norm, not opt.no_dropout, self.gpu_ids)
+                                      self.n_domains, opt.norm, opt.use_dropout, self.gpu_ids)
         if self.isTrain:
             self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.netD_n_layers,
                                           self.n_domains, opt.norm, opt.no_lsgan, self.gpu_ids)
@@ -114,18 +110,17 @@ class CycleGANModel(BaseModel):
         self.loss_D[self.DB] = self.backward_D_basic(self.real_A, fake_A, self.DA)
 
     def backward_G(self):
-        lambda_A = self.opt.lambda_A
-        lambda_B = self.opt.lambda_B
-        lambda_idt = self.opt.identity
+        lambda_cyc = self.opt.lambda_cycle
+        lambda_idt = self.opt.lambda_identity
         lambda_fwd = self.opt.lambda_forward
 
-        # Identity loss
+        # Optional identity "autoencode" loss
         if lambda_idt > 0:
             # Same encoder and decoder should recreate image
             self.idt_A = self.netG.autoencode(self.real_A, self.DA)
-            self.loss_idt[self.DA] = self.criterionIdt(self.idt_A, self.real_A) * lambda_A * lambda_idt
+            self.loss_idt[self.DA] = self.criterionIdt(self.idt_A, self.real_A) * lambda_idt
             self.idt_B = self.netG.autoencode(self.real_B, self.DB)
-            self.loss_idt[self.DB] = self.criterionIdt(self.idt_B, self.real_B) * lambda_B * lambda_idt
+            self.loss_idt[self.DB] = self.criterionIdt(self.idt_B, self.real_B) * lambda_idt
         else:
             self.loss_idt[self.DA] = 0
             self.loss_idt[self.DB] = 0
@@ -141,10 +136,10 @@ class CycleGANModel(BaseModel):
         self.loss_G[self.DB] = self.criterionGAN(pred_fake, True)
         # Forward cycle loss
         self.rec_A = self.netG.forward(self.fake_B, self.DB, self.DA)
-        self.loss_cycle[self.DA] = self.criterionCycle(self.rec_A, self.real_A) * lambda_A
+        self.loss_cycle[self.DA] = self.criterionCycle(self.rec_A, self.real_A) * lambda_cyc
         # Backward cycle loss
         self.rec_B = self.netG.forward(self.fake_A, self.DA, self.DB)
-        self.loss_cycle[self.DB] = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
+        self.loss_cycle[self.DB] = self.criterionCycle(self.rec_B, self.real_B) * lambda_cyc
 
         # Optional loss on downsampled image before and after
         if lambda_fwd > 0:
@@ -204,4 +199,3 @@ class CycleGANModel(BaseModel):
 
         print('update learning rate: %f -> %f' % (self.old_lr, lr))
         self.old_lr = lr
-

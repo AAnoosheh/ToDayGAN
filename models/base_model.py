@@ -6,7 +6,7 @@ class BaseModel():
     def name(self):
         return 'BaseModel'
 
-    def initialize(self, opt):
+    def __init__(self, opt):
         self.opt = opt
         self.gpu_ids = opt.gpu_ids
         self.isTrain = opt.isTrain
@@ -39,16 +39,16 @@ class BaseModel():
         pass
 
     # helper saving function that can be used by subclasses
-    def save_network(self, network, network_label, epoch_label, gpu_ids):
-        save_filename = '%s_net_%s' % (epoch_label, network_label)
+    def save_network(self, network, network_label, epoch, gpu_ids):
+        save_filename = '%d_net_%s' % (epoch, network_label)
         save_path = os.path.join(self.save_dir, save_filename)
         network.save(save_path)
         if gpu_ids and torch.cuda.is_available():
-            network.cuda(device_id=gpu_ids[0])
+            network.cuda(gpu_ids[0])
 
     # helper loading function that can be used by subclasses
-    def load_network(self, network, network_label, epoch_label):
-        save_filename = '%s_net_%s' % (epoch_label, network_label)
+    def load_network(self, network, network_label, epoch):
+        save_filename = '%d_net_%s' % (epoch, network_label)
         save_path = os.path.join(self.save_dir, save_filename)
         network.load(save_path)
 

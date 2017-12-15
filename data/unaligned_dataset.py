@@ -6,7 +6,8 @@ from PIL import Image
 import random
 
 class UnalignedDataset(BaseDataset):
-    def initialize(self, opt):
+    def __init__(self, opt):
+        super(UnalignedDataset, self).__init__()
         self.opt = opt
         self.transform = get_transform(opt)
 

@@ -1,20 +1,21 @@
 import time
 from options.train_options import TrainOptions
-from data.data_loader import CreateDataLoader
-from models.models import create_model
+from data.data_loader import DataLoader
+from models.combogan_model import ComboGANModel
 from util.visualizer import Visualizer
 
+
 opt = TrainOptions().parse()
-data_loader = CreateDataLoader(opt)
+data_loader = DataLoader(opt)
 dataset = data_loader.load_data()
 dataset_size = len(data_loader)
 print('#training images = %d' % dataset_size)
 
-model = create_model(opt)
+model = ComboGANModel(opt)
 visualizer = Visualizer(opt)
 total_steps = 0
 
-for epoch in range(opt.epoch_count, opt.niter + opt.niter_decay + 1):
+for epoch in range(opt.which_epoch + 1, opt.niter + opt.niter_decay + 1):
     epoch_start_time = time.time()
     epoch_iter = 0
     for i, data in enumerate(dataset):
@@ -34,15 +35,8 @@ for epoch in range(opt.epoch_count, opt.niter + opt.niter_decay + 1):
             if opt.display_id > 0:
                 visualizer.plot_current_errors(epoch, float(epoch_iter)/dataset_size, opt, errors)
 
-        if total_steps % opt.save_latest_freq == 0:
-            print('saving the latest model (epoch %d, total_steps %d)' %
-                  (epoch, total_steps))
-            model.save('latest')
-
     if epoch % opt.save_epoch_freq == 0:
-        print('saving the model at the end of epoch %d, iters %d' %
-              (epoch, total_steps))
-        model.save('latest')
+        print('saving the model at the end of epoch %d, iters %d' % (epoch, total_steps))
         model.save(epoch)
 
     print('End of epoch %d / %d \t Time Taken: %d sec' %
