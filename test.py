@@ -12,8 +12,7 @@ opt.nThreads = 1   # test code only supports nThreads = 1
 opt.batchSize = 1  # test code only supports batchSize = 1
 opt.no_flip = True  # no flip
 
-data_loader = DataLoader(opt)
-dataset = data_loader.load_data()
+dataset = DataLoader(opt)
 model = ComboGANModel(opt)
 visualizer = Visualizer(opt)
 # create website

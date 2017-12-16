@@ -6,11 +6,9 @@ from util.visualizer import Visualizer
 
 
 opt = TrainOptions().parse()
-data_loader = DataLoader(opt)
-dataset = data_loader.load_data()
-dataset_size = len(data_loader)
-print('#training images = %d' % dataset_size)
 
+dataset = DataLoader(opt)
+print('# training images = %d' % len(dataset))
 model = ComboGANModel(opt)
 visualizer = Visualizer(opt)
 total_steps = 0

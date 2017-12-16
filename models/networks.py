@@ -59,15 +59,6 @@ def define_D(input_nc, ndf, netD_n_layers, n_domains, norm='batch', use_sigmoid=
     return plex_netD
 
 
-def print_network(plexer_net):
-    num_params = 0
-    for net in plexer_net.networks:
-        for param in net.parameters():
-            num_params += param.numel()
-        print(net)
-    print('Total number of parameters: %d' % num_params)
-
-
 ##############################################################################
 # Classes
 ##############################################################################
@@ -339,6 +330,15 @@ class G_Plexer(Plexer):
         decoder = self.decoders[domain]
         return decoder.forward( encoder.forward(input) )
 
+    def __repr__(self):
+        e, d = self.encoders[0], self.decoders[0]
+        e_params = sum([p.numel() for p in e.parameters()])
+        d_params = sum([p.numel() for p in d.parameters()])
+        return repr(e) +'\n'+ repr(d) +'\n'+ \
+            'Created %d Encoder-Decoder pairs' % len(self.encoders) +'\n'+ \
+            'Number of parameters per Encoder: %d' % e_params +'\n'+ \
+            'Number of parameters per Deocder: %d' % d_params
+
 class D_Plexer(Plexer):
     def __init__(self, n_domains, model, model_args):
         super(D_Plexer, self).__init__()
@@ -351,3 +351,10 @@ class D_Plexer(Plexer):
     def forward(self, input, in_domain):
         discriminator = self.networks[in_domain]
         return discriminator.forward(input)
+
+    def __repr__(self):
+        t = self.networks[0]
+        t_params = sum([p.numel() for p in t.parameters()])
+        return repr(t) +'\n'+ \
+            'Created %d Discriminators' % len(self.networks) +'\n'+ \
+            'Number of parameters per Discriminator: %d' % t_params

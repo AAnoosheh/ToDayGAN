@@ -49,9 +49,9 @@ class ComboGANModel(BaseModel):
             self.loss_cycle, self.loss_idt = [0]*self.n_domains, [0]*self.n_domains
 
         print('---------- Networks initialized -------------')
-        networks.print_network(self.netG)
+        print(self.netG)
         if self.isTrain:
-            networks.print_network(self.netD)
+            print(self.netD)
         print('-----------------------------------------------')
 
     def set_input(self, input):
@@ -168,9 +168,9 @@ class ComboGANModel(BaseModel):
         D_losses = extract(self.loss_D)
         G_losses = extract(self.loss_G)
         cyc_losses = extract(self.loss_cycle)
-        if self.opt.identity > 0.0:
+        if self.opt.lambda_identity > 0.0:
             idt_losses = extract(self.loss_idt)
-            return OrderedDict([('D', D_losses), ('G', G_losses), ('Cyc', cyc_losses), ('idt', idt_losses)])
+            return OrderedDict([('D', D_losses), ('G', G_losses), ('Cyc', cyc_losses), ('Idt', idt_losses)])
         else:
             return OrderedDict([('D', D_losses), ('G', G_losses), ('Cyc', cyc_losses)])
 
@@ -178,7 +178,7 @@ class ComboGANModel(BaseModel):
         if not testing:
             self.visuals = [self.real_A, self.fake_B, self.rec_A, self.real_B, self.fake_A, self.rec_B]
             self.labels = ['real_A', 'fake_B', 'rec_A', 'real_B', 'fake_A', 'rec_B']
-            if self.opt.identity > 0.0:
+            if self.opt.lambda_identity > 0.0:
                 self.visuals += [self.idt_A, self.idt_B]
                 self.labels += ['idt_A', 'idt_B']
 

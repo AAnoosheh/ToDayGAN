@@ -7,7 +7,7 @@ class TrainOptions(BaseOptions):
         self.isTrain = True
 
         self.parser.add_argument('--continue_train', action='store_true', help='continue training: load the latest model')
-        self.parser.add_argument('--which_epoch', type=int, default=-1, help='which epoch to load if continuing training')
+        self.parser.add_argument('--which_epoch', type=int, default=0, help='which epoch to load if continuing training')
         self.parser.add_argument('--phase', type=str, default='train', help='train, val, test, etc (determines name of folder to load from)')
 
         self.parser.add_argument('--niter', required=True, type=int, help='# of epochs at starting learning rate (try 50*n_domains)')
