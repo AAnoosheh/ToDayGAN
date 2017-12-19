@@ -161,15 +161,17 @@ class Visualizer():
 
     # reshape a list of images into a square matrix of them
     def stack_images(self, list_np_images):
+        n = int(np.ceil(np.sqrt(len(list_np_images))))
+
+        # add padding between images
+        for i, im in enumerate(list_np_images):
+            val = 255 if i%n == i//n else 0
+            r_pad = np.pad(im[:,:,0], (3,3), mode='constant', constant_values=0)
+            g_pad = np.pad(im[:,:,1], (3,3), mode='constant', constant_values=val)
+            b_pad = np.pad(im[:,:,2], (3,3), mode='constant', constant_values=0)
+            list_np_images[i] = np.stack([r_pad,g_pad,b_pad], axis=2)
+
         data = np.array(list_np_images)
-
-        n = int(np.ceil(np.sqrt(data.shape[0])))
-        padding = (((0, n ** 2 - data.shape[0]),
-                   (0, 1), (0, 1))                 # add some space between filters
-                   + ((0, 0),) * (data.ndim - 3))  # don't pad the last dimension (if there is one)
-        data = np.pad(data, padding, mode='constant', constant_values=1)  # pad with ones (white)
-
         data = data.reshape((n, n) + data.shape[1:]).transpose((0, 2, 1, 3) + tuple(range(4, data.ndim + 1)))
         data = data.reshape((n * data.shape[1], n * data.shape[3]) + data.shape[4:])
         return data
-
