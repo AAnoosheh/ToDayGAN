@@ -3,7 +3,6 @@
 
 This is our ongoing PyTorch implementation for ComboGAN.
 Code was written by [Asha Anoosheh](https://github.com/aanoosheh) (built upon [CycleGAN](https://github.com/junyanz/CycleGAN))
-(Datasets will be available soon!)
 
 
 #### [[ComboGAN Paper]](https://arxiv.org/pdf/1712.06909.pdf)
@@ -48,7 +47,9 @@ cd ComboGAN
 ```
 
 ### ComboGAN training
-Example scripts can be found in the `scripts` directory.
+Our ready datasets can be downloaded using `./datasets/download_dataset.sh <dataset_name>`.
+
+Example running scripts can be found in the `scripts` directory.
 
 - Train a model:
 ```

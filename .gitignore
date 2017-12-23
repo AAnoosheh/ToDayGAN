@@ -2,7 +2,6 @@ datasets/
 checkpoints/
 results/
 *.png
-!img/*.png
 */**/__pycache__
 */*.pyc
 */**/*.pyc
