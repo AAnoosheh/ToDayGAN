@@ -29,6 +29,7 @@ class BaseOptions():
         self.parser.add_argument('--ngf', type=int, default=64, help='# of gen filters in first conv layer')
         self.parser.add_argument('--ndf', type=int, default=64, help='# of discrim filters in first conv layer')
         self.parser.add_argument('--netG_n_blocks', type=int, default=9, help='number of residual blocks to use for netG')
+        self.parser.add_argument('--netG_n_shared', type=int, default=0, help='number of blocks to use for netG shared center module')
         self.parser.add_argument('--netD_n_layers', type=int, default=3, help='number of layers to use for netD')
 
         self.parser.add_argument('--norm', type=str, default='instance', help='instance normalization or batch normalization')

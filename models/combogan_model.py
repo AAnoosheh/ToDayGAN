@@ -22,7 +22,8 @@ class ComboGANModel(BaseModel):
         self.input_B = self.Tensor(opt.batchSize, opt.output_nc, opt.fineSize, opt.fineSize)
 
         # load/define networks
-        self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG_n_blocks,
+        self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf,
+                                      opt.netG_n_blocks, opt.netG_n_shared,
                                       self.n_domains, opt.norm, opt.use_dropout, self.gpu_ids)
         if self.isTrain:
             self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.netD_n_layers,

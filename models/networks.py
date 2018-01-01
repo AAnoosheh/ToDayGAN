@@ -28,14 +28,29 @@ def get_norm_layer(norm_type='instance'):
         raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
 
 
-def define_G(input_nc, output_nc, ngf, netG_n_blocks, n_domains, norm='batch', use_dropout=False, gpu_ids=[]):
+def define_G(input_nc, output_nc, ngf, n_blocks, n_blocks_shared, n_domains, norm='batch', use_dropout=False, gpu_ids=[]):
     norm_layer = get_norm_layer(norm_type=norm)
-    n_blocks_enc = netG_n_blocks // 2
-    n_blocks_dec = netG_n_blocks - n_blocks_enc
+    if type(norm_layer) == functools.partial:
+        use_bias = norm_layer.func == nn.InstanceNorm2d
+    else:
+        use_bias = norm_layer == nn.InstanceNorm2d
 
-    enc_args = (input_nc, ngf, norm_layer, use_dropout, n_blocks_enc, gpu_ids)
-    dec_args = (output_nc, ngf, norm_layer, use_dropout, n_blocks_dec, gpu_ids)
-    plex_netG = G_Plexer(n_domains, ResnetGenEncoder, ResnetGenDecoder, enc_args, dec_args)
+    n_blocks -= n_blocks_shared
+    n_blocks_enc = n_blocks // 2
+    n_blocks_dec = n_blocks - n_blocks_enc
+
+    dup_args = (ngf, norm_layer, use_dropout, gpu_ids, use_bias)
+    enc_args = (input_nc, n_blocks_enc) + dup_args
+    dec_args = (output_nc, n_blocks_dec) + dup_args
+
+    if n_blocks_shared > 0:
+        n_blocks_shdec = n_blocks_shared // 2
+        n_blocks_shenc = n_blocks_shared - n_blocks_shdec
+        shenc_args = (n_domains, n_blocks_shenc) + dup_args
+        shdec_args = (n_domains, n_blocks_shdec) + dup_args
+        plex_netG = G_Plexer(n_domains, ResnetGenEncoder, enc_args, ResnetGenDecoder, dec_args, ResnetGenShared, shenc_args, shdec_args)
+    else:
+        plex_netG = G_Plexer(n_domains, ResnetGenEncoder, enc_args, ResnetGenDecoder, dec_args)
 
     if len(gpu_ids) > 0:
         assert(torch.cuda.is_available())
@@ -94,15 +109,11 @@ class GANLoss(nn.Module):
 # Code and idea originally from Justin Johnson's architecture.
 # https://github.com/jcjohnson/fast-neural-style/
 class ResnetGenEncoder(nn.Module):
-    def __init__(self, input_nc, ngf=64, norm_layer=nn.BatchNorm2d,
-                 use_dropout=False, n_blocks=4, gpu_ids=[], padding_type='reflect'):
+    def __init__(self, input_nc, n_blocks=4, ngf=64, norm_layer=nn.BatchNorm2d,
+                 use_dropout=False, gpu_ids=[], use_bias=False, padding_type='reflect'):
         assert(n_blocks >= 0)
         super(ResnetGenEncoder, self).__init__()
         self.gpu_ids = gpu_ids
-        if type(norm_layer) == functools.partial:
-            use_bias = norm_layer.func == nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer == nn.InstanceNorm2d
 
         model = [nn.ReflectionPad2d(3),
                  nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0,
@@ -119,9 +130,9 @@ class ResnetGenEncoder(nn.Module):
                       nn.ReLU(True)]
 
         mult = 2**n_downsampling
-        for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type,
-                                  norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        for _ in range(n_blocks):
+            model += [ResnetBlock(ngf * mult, norm_layer=norm_layer,
+                                  use_dropout=use_dropout, use_bias=use_bias, padding_type=padding_type)]
 
         self.model = nn.Sequential(*model)
 
@@ -130,24 +141,42 @@ class ResnetGenEncoder(nn.Module):
             return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
         return self.model(input)
 
-class ResnetGenDecoder(nn.Module):
-    def __init__(self, output_nc, ngf=64, norm_layer=nn.BatchNorm2d,
-                 use_dropout=False, n_blocks=5, gpu_ids=[], padding_type='reflect'):
+class ResnetGenShared(nn.Module):
+    def __init__(self, n_domains, n_blocks=2, ngf=64, norm_layer=nn.BatchNorm2d,
+                 use_dropout=False, gpu_ids=[], use_bias=False, padding_type='reflect'):
         assert(n_blocks >= 0)
-        super(ResnetGenDecoder, self).__init__()
+        super(ResnetGenShared, self).__init__()
         self.gpu_ids = gpu_ids
-        if type(norm_layer) == functools.partial:
-            use_bias = norm_layer.func == nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer == nn.InstanceNorm2d
 
         model = []
         n_downsampling = 2
         mult = 2**n_downsampling
 
-        for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type,
-                                  norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        for _ in range(n_blocks):
+            model += [ResnetBlock(ngf * mult, norm_layer=norm_layer, n_domains=n_domains,
+                                  use_dropout=use_dropout, use_bias=use_bias, padding_type=padding_type)]
+
+        self.model = SequentialContext(n_domains, *model)
+
+    def forward(self, input, domain):
+        if self.gpu_ids and isinstance(input.data, torch.cuda.FloatTensor):
+            return nn.parallel.data_parallel(self.model, (input, domain), self.gpu_ids)
+        return self.model(input, domain)
+
+class ResnetGenDecoder(nn.Module):
+    def __init__(self, output_nc, n_blocks=5, ngf=64, norm_layer=nn.BatchNorm2d,
+                 use_dropout=False, gpu_ids=[], use_bias=False, padding_type='reflect'):
+        assert(n_blocks >= 0)
+        super(ResnetGenDecoder, self).__init__()
+        self.gpu_ids = gpu_ids
+
+        model = []
+        n_downsampling = 2
+        mult = 2**n_downsampling
+
+        for _ in range(n_blocks):
+            model += [ResnetBlock(ngf * mult, norm_layer=norm_layer,
+                                  use_dropout=use_dropout, use_bias=use_bias, padding_type=padding_type)]
 
         for i in range(n_downsampling):
             mult = 2**(n_downsampling - i)
@@ -172,11 +201,9 @@ class ResnetGenDecoder(nn.Module):
 
 # Define a resnet block
 class ResnetBlock(nn.Module):
-    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
+    def __init__(self, dim, norm_layer, use_dropout, use_bias, padding_type='reflect', n_domains=0):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -188,7 +215,7 @@ class ResnetBlock(nn.Module):
         else:
             raise NotImplementedError('padding [%s] is not implemented' % padding_type)
 
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias),
+        conv_block += [nn.Conv2d(dim + n_domains, dim, kernel_size=3, padding=p, bias=use_bias),
                        norm_layer(dim),
                        nn.ReLU(True)]
         if use_dropout:
@@ -203,13 +230,15 @@ class ResnetBlock(nn.Module):
             p = 1
         else:
             raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias),
+        conv_block += [nn.Conv2d(dim + n_domains, dim, kernel_size=3, padding=p, bias=use_bias),
                        norm_layer(dim)]
 
-        return nn.Sequential(*conv_block)
+        self.conv_block = SequentialContext(n_domains, *conv_block)
 
-    def forward(self, x):
-        return x + self.conv_block(x)
+    def forward(self, input):
+        if isinstance(input, tuple):
+            return input[0] + self.conv_block(*input)
+        return input + self.conv_block(input)
 
 
 # Defines the PatchGAN discriminator with the specified arguments.
@@ -276,6 +305,10 @@ class Plexer(nn.Module):
         for net in self.networks:
             net.cuda(device_id)
 
+    def init_optimizers(self, opt, lr, betas):
+        self.optimizers = [opt(net.parameters(), lr=lr, betas=betas) \
+                           for net in self.networks]
+
     def zero_grads(self, dom_a, dom_b):
         self.optimizers[dom_a].zero_grad()
         self.optimizers[dom_b].zero_grad()
@@ -300,10 +333,18 @@ class Plexer(nn.Module):
             net.load_state_dict(torch.load(filename))
 
 class G_Plexer(Plexer):
-    def __init__(self, n_domains, encoder, decoder, enc_args, dec_args):
+    def __init__(self, n_domains, encoder, enc_args, decoder, dec_args,
+                 block=None, shenc_args=None, shdec_args=None):
         super(G_Plexer, self).__init__()
         self.encoders = [encoder(*enc_args) for _ in range(n_domains)]
         self.decoders = [decoder(*dec_args) for _ in range(n_domains)]
+
+        self.sharing = block is not None
+        if self.sharing:
+            self.shared_encoder = block(*shenc_args)
+            self.shared_decoder = block(*shdec_args)
+            self.encoders.append( self.shared_encoder )
+            self.decoders.append( self.shared_decoder )
         self.networks = self.encoders + self.decoders
 
     def init_optimizers(self, opt, lr, betas):
@@ -313,22 +354,35 @@ class G_Plexer(Plexer):
             self.optimizers.append( opt(params, lr=lr, betas=betas) )
 
     def forward(self, input, in_domain, out_domain):
-        encoder = self.encoders[in_domain]
-        decoder = self.decoders[out_domain]
-        return decoder.forward( encoder.forward(input) )
+        encoded = self.encode(input, in_domain)
+        return self.decode(encoded, out_domain)
 
     def encode(self, input, domain):
-        encoder = self.encoders[domain]
-        return encoder.forward(input)
+        output = self.encoders[domain].forward(input)
+        if self.sharing:
+            return self.shared_encoder.forward(output, domain)
+        return output
 
     def decode(self, input, domain):
-        decoder = self.decoders[domain]
-        return decoder.forward(input)
+        if self.sharing:
+            input = self.shared_decoder.forward(input, domain)
+        return self.decoders[domain].forward(input)
 
     def autoencode(self, input, domain):
-        encoder = self.encoders[domain]
-        decoder = self.decoders[domain]
-        return decoder.forward( encoder.forward(input) )
+        encoded = self.encode(input, domain)
+        return self.decode(encoded, domain)
+
+    def zero_grads(self, dom_a, dom_b):
+        self.optimizers[dom_a].zero_grad()
+        if self.sharing:
+            self.optimizers[-1].zero_grad()
+        self.optimizers[dom_b].zero_grad()
+
+    def step_grads(self, dom_a, dom_b):
+        self.optimizers[dom_a].step()
+        if self.sharing:
+            self.optimizers[-1].step()
+        self.optimizers[dom_b].step()
 
     def __repr__(self):
         e, d = self.encoders[0], self.decoders[0]
@@ -344,12 +398,8 @@ class D_Plexer(Plexer):
         super(D_Plexer, self).__init__()
         self.networks = [model(*model_args) for _ in range(n_domains)]
 
-    def init_optimizers(self, opt, lr, betas):
-        self.optimizers = [opt(net.parameters(), lr=lr, betas=betas) \
-                           for net in self.networks]
-
-    def forward(self, input, in_domain):
-        discriminator = self.networks[in_domain]
+    def forward(self, input, domain):
+        discriminator = self.networks[domain]
         return discriminator.forward(input)
 
     def __repr__(self):
@@ -358,3 +408,35 @@ class D_Plexer(Plexer):
         return repr(t) +'\n'+ \
             'Created %d Discriminators' % len(self.networks) +'\n'+ \
             'Number of parameters per Discriminator: %d' % t_params
+
+
+class SequentialContext(nn.Sequential):
+    def __init__(self, n_classes, *args):
+        super(SequentialContext, self).__init__(*args)
+        self.n_classes = n_classes
+        self.context_var = None
+
+    def prepare_context(self, input, domain):
+        if self.context_var is None or self.context_var.size()[-2:] != input.size()[-2:]:
+            tensor = torch.cuda.FloatTensor if isinstance(input.data, torch.cuda.FloatTensor) \
+                     else torch.FloatTensor
+            context_size = (1, self.n_classes) + input.size()[-2:]
+            self.context_var = Variable(tensor(*context_size), requires_grad=False)
+
+        self.context_var.data.fill_(-1.0)
+        self.context_var.data[:,domain,:,:] = 1.0
+        return self.context_var
+
+    def forward(self, *input):
+        if self.n_classes < 2 or len(input) < 2:
+            return super(SequentialContext, self).forward(input[0])
+        x, domain = input
+
+        for module in self._modules.values():
+            if 'Conv' in module.__class__.__name__:
+                context_var = self.prepare_context(x, domain)
+                x = torch.cat([x, context_var], dim=1)
+            elif 'Block' in module.__class__.__name__:
+                x = (x,) + input[1:]
+            x = module(x)
+        return x
