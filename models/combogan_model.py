@@ -47,7 +47,7 @@ class ComboGANModel(BaseModel):
             self.netD.init_optimizers(torch.optim.Adam, opt.lr, (opt.beta1, 0.999))
             # initialize loss storage
             self.loss_D, self.loss_G = [0]*self.n_domains, [0]*self.n_domains
-            self.loss_cycle, self.loss_idt = [0]*self.n_domains, [0]*self.n_domains
+            self.loss_cycle = [0]*self.n_domains
 
         print('---------- Networks initialized -------------')
         print(self.netG)
@@ -112,34 +112,47 @@ class ComboGANModel(BaseModel):
     def backward_G(self):
         lambda_cyc = self.opt.lambda_cycle
         lambda_idt = self.opt.lambda_identity
+        lambda_enc = self.opt.lambda_latent
         lambda_fwd = self.opt.lambda_forward
+
+        encoded_A = self.netG.encode(self.real_A, self.DA)
+        encoded_B = self.netG.encode(self.real_B, self.DB)
 
         # Optional identity "autoencode" loss
         if lambda_idt > 0:
             # Same encoder and decoder should recreate image
-            self.idt_A = self.netG.autoencode(self.real_A, self.DA)
-            self.loss_idt[self.DA] = self.criterionIdt(self.idt_A, self.real_A) * lambda_idt
-            self.idt_B = self.netG.autoencode(self.real_B, self.DB)
-            self.loss_idt[self.DB] = self.criterionIdt(self.idt_B, self.real_B) * lambda_idt
+            self.idt_A = self.netG.decode(encoded_A, self.DA)
+            loss_idt_A = self.criterionIdt(self.idt_A, self.real_A) * lambda_idt
+            self.idt_B = self.netG.decode(encoded_B, self.DB)
+            loss_idt_B = self.criterionIdt(self.idt_B, self.real_B) * lambda_idt
         else:
-            self.loss_idt[self.DA] = 0
-            self.loss_idt[self.DB] = 0
+            loss_idt_A, loss_idt_B = 0, 0
 
         # GAN loss
         # D_A(G_A(A))
-        self.fake_B = self.netG.forward(self.real_A, self.DA, self.DB)
+        self.fake_B = self.netG.decode(encoded_A, self.DB)
         pred_fake = self.netD.forward(self.fake_B, self.DB)
         self.loss_G[self.DA] = self.criterionGAN(pred_fake, True)
         # D_B(G_B(B))
-        self.fake_A = self.netG.forward(self.real_B, self.DB, self.DA)
+        self.fake_A = self.netG.decode(encoded_B, self.DA)
         pred_fake = self.netD.forward(self.fake_A, self.DA)
         self.loss_G[self.DB] = self.criterionGAN(pred_fake, True)
         # Forward cycle loss
-        self.rec_A = self.netG.forward(self.fake_B, self.DB, self.DA)
+        rec_encoded_A = self.netG.encode(self.fake_B, self.DB)
+        self.rec_A = self.netG.decode(rec_encoded_A, self.DA)
         self.loss_cycle[self.DA] = self.criterionCycle(self.rec_A, self.real_A) * lambda_cyc
         # Backward cycle loss
-        self.rec_B = self.netG.forward(self.fake_A, self.DA, self.DB)
+        rec_encoded_B = self.netG.encode(self.fake_A, self.DA)
+        self.rec_B = self.netG.decode(rec_encoded_B, self.DB)
         self.loss_cycle[self.DB] = self.criterionCycle(self.rec_B, self.real_B) * lambda_cyc
+
+        # Optional cycle loss on encoding space
+        if lambda_enc > 0:
+            copy = lambda t: Variable(t.data, requires_grad=False)
+            loss_enc_A = self.criterionCycle(rec_encoded_A, copy(encoded_A)) * lambda_enc
+            loss_enc_B = self.criterionCycle(rec_encoded_B, copy(encoded_B)) * lambda_enc
+        else:
+            loss_enc_A, loss_enc_B = 0, 0
 
         # Optional loss on downsampled image before and after
         if lambda_fwd > 0:
@@ -150,7 +163,7 @@ class ComboGANModel(BaseModel):
 
         # combined loss
         loss_G = self.loss_G[self.DA] + self.loss_G[self.DB] + self.loss_cycle[self.DA] + self.loss_cycle[self.DB] + \
-                 self.loss_idt[self.DA] + self.loss_idt[self.DB] + loss_fwd_A + loss_fwd_B
+                 loss_idt_A + loss_idt_B + loss_enc_A + loss_enc_B + loss_fwd_A + loss_fwd_B
         loss_G.backward()
 
     def optimize_parameters(self):
@@ -166,14 +179,8 @@ class ComboGANModel(BaseModel):
 
     def get_current_errors(self):
         extract = lambda l: [(i if type(i) is int or type(i) is float else i.data[0]) for i in l]
-        D_losses = extract(self.loss_D)
-        G_losses = extract(self.loss_G)
-        cyc_losses = extract(self.loss_cycle)
-        if self.opt.lambda_identity > 0.0:
-            idt_losses = extract(self.loss_idt)
-            return OrderedDict([('D', D_losses), ('G', G_losses), ('Cyc', cyc_losses), ('Idt', idt_losses)])
-        else:
-            return OrderedDict([('D', D_losses), ('G', G_losses), ('Cyc', cyc_losses)])
+        D_losses, G_losses, cyc_losses = extract(self.loss_D), extract(self.loss_G), extract(self.loss_cycle)
+        return OrderedDict([('D', D_losses), ('G', G_losses), ('Cyc', cyc_losses)])
 
     def get_current_visuals(self, testing=False):
         if not testing:

@@ -368,10 +368,6 @@ class G_Plexer(Plexer):
             input = self.shared_decoder.forward(input, domain)
         return self.decoders[domain].forward(input)
 
-    def autoencode(self, input, domain):
-        encoded = self.encode(input, domain)
-        return self.decode(encoded, domain)
-
     def zero_grads(self, dom_a, dom_b):
         self.optimizers[dom_a].zero_grad()
         if self.sharing:
