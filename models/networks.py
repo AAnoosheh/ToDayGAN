@@ -119,7 +119,7 @@ class ResnetGenEncoder(nn.Module):
                  nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0,
                            bias=use_bias),
                  norm_layer(ngf),
-                 nn.ReLU(True)]
+                 nn.PReLU()]
 
         n_downsampling = 2
         for i in range(n_downsampling):
@@ -127,7 +127,7 @@ class ResnetGenEncoder(nn.Module):
             model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
                                 stride=2, padding=1, bias=use_bias),
                       norm_layer(ngf * mult * 2),
-                      nn.ReLU(True)]
+                      nn.PReLU()]
 
         mult = 2**n_downsampling
         for _ in range(n_blocks):
@@ -185,7 +185,7 @@ class ResnetGenDecoder(nn.Module):
                                          padding=1, output_padding=0,
                                          bias=use_bias),
                       norm_layer(int(ngf * mult / 2)),
-                      nn.ReLU(True)]
+                      nn.PReLU()]
 
         model += [nn.ReflectionPad2d(3),
                   nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0),
@@ -217,7 +217,7 @@ class ResnetBlock(nn.Module):
 
         conv_block += [nn.Conv2d(dim + n_domains, dim, kernel_size=3, padding=p, bias=use_bias),
                        norm_layer(dim),
-                       nn.ReLU(True)]
+                       nn.PReLU()]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
 
@@ -256,7 +256,7 @@ class NLayerDiscriminator(nn.Module):
         padw = int(np.ceil((kw-1)/2))
         sequence = [
             nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw),
-            nn.LeakyReLU(0.2, True)
+            nn.PReLU()
         ]
 
         nf_mult = 1
@@ -268,7 +268,7 @@ class NLayerDiscriminator(nn.Module):
                 nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
                           kernel_size=kw, stride=2, padding=padw, bias=use_bias),
                 norm_layer(ndf * nf_mult),
-                nn.LeakyReLU(0.2, True)
+                nn.PReLU()
             ]
 
         nf_mult_prev = nf_mult
@@ -277,7 +277,7 @@ class NLayerDiscriminator(nn.Module):
             nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
                       kernel_size=kw, stride=1, padding=padw, bias=use_bias),
             norm_layer(ndf * nf_mult),
-            nn.LeakyReLU(0.2, True)
+            nn.PReLU()
         ]
 
         sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
