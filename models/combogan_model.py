@@ -27,7 +27,7 @@ class ComboGANModel(BaseModel):
                                       self.n_domains, opt.norm, opt.use_dropout, self.gpu_ids)
         if self.isTrain:
             self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.netD_n_layers,
-                                          self.n_domains, opt.norm, opt.no_lsgan, self.gpu_ids)
+                                          self.n_domains, opt.norm, self.gpu_ids)
 
         if not self.isTrain or opt.continue_train:
             which_epoch = opt.which_epoch

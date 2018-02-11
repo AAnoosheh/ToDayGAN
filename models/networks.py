@@ -60,10 +60,10 @@ def define_G(input_nc, output_nc, ngf, n_blocks, n_blocks_shared, n_domains, nor
     return plex_netG
 
 
-def define_D(input_nc, ndf, netD_n_layers, n_domains, norm='batch', use_sigmoid=False, gpu_ids=[]):
+def define_D(input_nc, ndf, netD_n_layers, n_domains, norm='batch', gpu_ids=[]):
     norm_layer = get_norm_layer(norm_type=norm)
 
-    model_args = (input_nc, ndf, netD_n_layers, norm_layer, use_sigmoid, gpu_ids)
+    model_args = (input_nc, ndf, netD_n_layers, norm_layer, gpu_ids)
     plex_netD = D_Plexer(n_domains, NLayerDiscriminator, model_args)
 
     if len(gpu_ids) > 0:
@@ -87,21 +87,28 @@ class GANLoss(nn.Module):
     def __init__(self, use_lsgan=True, tensor=torch.FloatTensor):
         super(GANLoss, self).__init__()
         self.Tensor = tensor
-        self.label_real, self.label_fake = None, None
+        self.labels_real, self.labels_fake = None, None
+        self.preloss = nn.Sigmoid() if not use_lsgan else None
         self.loss = nn.MSELoss() if use_lsgan else nn.BCELoss()
 
-    def get_target_tensor(self, input, is_real):
-        if self.label_real is None or self.label_real.numel() != input.numel():
-            self.label_real = Variable(self.Tensor(input.size()).fill_(1.0), requires_grad=False)
-            self.label_fake = Variable(self.Tensor(input.size()).fill_(0.0), requires_grad=False)
-
+    def get_target_tensor(self, inputs, is_real):
+        if self.labels_real is None or self.labels_real[0].numel() != inputs[0].numel():
+            self.labels_real = [ Variable(self.Tensor(input.size()).fill_(1.0), requires_grad=False) \
+                                 for input in inputs ]
+            self.labels_fake = [ Variable(self.Tensor(input.size()).fill_(0.0), requires_grad=False) \
+                                 for input in inputs ]
         if is_real:
-            return self.label_real
-        return self.label_fake
+            return self.labels_real
+        return self.labels_fake
 
-    def __call__(self, input, is_real):
-        label_var = self.get_target_tensor(input, is_real)
-        return self.loss(input, label_var)
+    def __call__(self, inputs, is_real):
+        labels = self.get_target_tensor(inputs, is_real)
+        if self.preloss is not None:
+            inputs = [self.preloss(input) for input in inputs]
+        losses = [self.loss(input, label) for input, label in zip(inputs, labels)]
+        multipliers = list(range(1, len(inputs)+1));  multipliers[-1] += 1
+        losses = [m*l for m,l in zip(multipliers, losses)]
+        return sum(losses) / (sum(multipliers) * len(losses))
 
 
 # Defines the generator that consists of Resnet blocks between a few
@@ -243,7 +250,7 @@ class ResnetBlock(nn.Module):
 
 # Defines the PatchGAN discriminator with the specified arguments.
 class NLayerDiscriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, gpu_ids=[]):
         super(NLayerDiscriminator, self).__init__()
         self.gpu_ids = gpu_ids
 
@@ -254,38 +261,35 @@ class NLayerDiscriminator(nn.Module):
 
         kw = 4
         padw = int(np.ceil((kw-1)/2))
-        sequence = [
+        sequences = [[
             nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw),
             nn.PReLU()
-        ]
+        ]]
 
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2**n, 8)
-            sequence += [
-                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
+            sequences += [[
+                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult + 1,
                           kernel_size=kw, stride=2, padding=padw, bias=use_bias),
-                norm_layer(ndf * nf_mult),
+                norm_layer(ndf * nf_mult + 1),
                 nn.PReLU()
-            ]
+            ]]
 
         nf_mult_prev = nf_mult
         nf_mult = min(2**n_layers, 8)
-        sequence += [
+        sequences += [[
             nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
                       kernel_size=kw, stride=1, padding=padw, bias=use_bias),
             norm_layer(ndf * nf_mult),
-            nn.PReLU()
-        ]
+            nn.PReLU(),
+            \
+            nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)
+        ]]
 
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
-
-        if use_sigmoid:
-            sequence += [nn.Sigmoid()]
-
-        self.model = nn.Sequential(*sequence)
+        self.model = SequentialOutput(*sequences)
 
     def forward(self, input):
         if len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor):
@@ -436,3 +440,20 @@ class SequentialContext(nn.Sequential):
                 x = (x,) + input[1:]
             x = module(x)
         return x
+
+class SequentialOutput(nn.Sequential):
+    def __init__(self, *args):
+        args = [nn.Sequential(*arg) for arg in args]
+        super(SequentialOutput, self).__init__(*args)
+
+    def forward(self, input):
+        predictions = []
+        layers = self._modules.values()
+        for i, module in enumerate(layers):
+            output = module(input)
+            if i == 0:
+                input = output;  continue
+            predictions.append( output[:,-1,:,:] )
+            if i != len(layers) - 1:
+                input = output[:,:-1,:,:]
+        return predictions
