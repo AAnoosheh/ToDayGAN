@@ -60,10 +60,10 @@ def define_G(input_nc, output_nc, ngf, n_blocks, n_blocks_shared, n_domains, nor
     return plex_netG
 
 
-def define_D(input_nc, ndf, netD_n_layers, n_domains, norm='batch', gpu_ids=[]):
+def define_D(input_nc, ndf, netD_n_layers, n_domains, blur_fn, norm='batch', gpu_ids=[]):
     norm_layer = get_norm_layer(norm_type=norm)
 
-    model_args = (input_nc, ndf, netD_n_layers, norm_layer, gpu_ids)
+    model_args = (input_nc, ndf, netD_n_layers, blur_fn, norm_layer, gpu_ids)
     plex_netD = D_Plexer(n_domains, NLayerDiscriminator, model_args)
 
     if len(gpu_ids) > 0:
@@ -250,10 +250,16 @@ class ResnetBlock(nn.Module):
 
 # Defines the PatchGAN discriminator with the specified arguments.
 class NLayerDiscriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, gpu_ids=[]):
+    def __init__(self, input_nc, ndf=64, n_layers=3, blur_fn=None, norm_layer=nn.BatchNorm2d, gpu_ids=[]):
         super(NLayerDiscriminator, self).__init__()
         self.gpu_ids = gpu_ids
+        self.blur_fn = blur_fn
+        self.gray_fn = lambda x: (.2126*x[:,0,:,:] + .7152*x[:,1,:,:] + .0722*x[:,2,:,:])[:,None,:,:]
 
+        self.model_gray = self.model(1, ndf, n_layers, norm_layer)
+        self.model_rgb = self.model(input_nc, ndf, n_layers, norm_layer)
+
+    def model(self, input_nc, ndf, n_layers, norm_layer):
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
@@ -289,12 +295,18 @@ class NLayerDiscriminator(nn.Module):
             nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)
         ]]
 
-        self.model = SequentialOutput(*sequences)
+        return SequentialOutput(*sequences)
 
     def forward(self, input):
+        luminance, blurred_rgb = self.gray_fn(input), self.blur_fn(input)
+
         if len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor):
-            return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
-        return self.model(input)
+            outs1 = nn.parallel.data_parallel(self.model_gray, luminance, self.gpu_ids)
+            outs2 = nn.parallel.data_parallel(self.model_rgb, blurred_rgb, self.gpu_ids)
+        else:
+            outs1 = self.model_gray(luminance)
+            outs2 = self.model_rgb(blurred_rgb)
+        return [torch.cat([o1,o2], 1) for o1,o2 in zip(outs1, outs2)]
 
 
 class Plexer(nn.Module):

@@ -1,9 +1,9 @@
 from __future__ import print_function
 import torch
 import numpy as np
+from scipy.ndimage.filters import gaussian_filter
 from PIL import Image
 import inspect, re
-import numpy as np
 import os
 import collections
 
@@ -13,6 +13,14 @@ def tensor2im(image_tensor, imtype=np.uint8):
     image_numpy = image_tensor[0].cpu().float().numpy()
     image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0
     return image_numpy.astype(imtype)
+
+def gkern_2d(size=5, sigma=3):
+    # Create 2D gaussian kernel
+    dirac = np.zeros((size, size))
+    dirac[size//2, size//2] = 1
+    mask = gaussian_filter(dirac, sigma)
+    # Adjust dimensions for torch conv2d
+    return np.stack([np.expand_dims(mask, axis=0)] * 3)
 
 
 def diagnose_network(net, name='network'):
