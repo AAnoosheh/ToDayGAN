@@ -6,12 +6,15 @@ from util.visualizer import Visualizer
 
 
 opt = TrainOptions().parse()
-
 dataset = DataLoader(opt)
 print('# training images = %d' % len(dataset))
 model = ComboGANModel(opt)
 visualizer = Visualizer(opt)
 total_steps = 0
+
+# Update initially if continuing
+if opt.which_epoch > 0:
+    model.update_hyperparams(opt.which_epoch)
 
 for epoch in range(opt.which_epoch + 1, opt.niter + opt.niter_decay + 1):
     epoch_start_time = time.time()
@@ -40,7 +43,4 @@ for epoch in range(opt.which_epoch + 1, opt.niter + opt.niter_decay + 1):
     print('End of epoch %d / %d \t Time Taken: %d sec' %
           (epoch, opt.niter + opt.niter_decay, time.time() - epoch_start_time))
 
-    if epoch > opt.niter:
-        decay_frac = (epoch - opt.niter) / opt.niter_decay
-        new_lr = opt.lr * (1 - decay_frac)
-        model.update_learning_rate(new_lr)
+    model.update_hyperparams(epoch)

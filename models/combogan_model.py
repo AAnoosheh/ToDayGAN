@@ -50,6 +50,9 @@ class ComboGANModel(BaseModel):
             # initialize loss storage
             self.loss_D, self.loss_G = [0]*self.n_domains, [0]*self.n_domains
             self.loss_cycle = [0]*self.n_domains
+            # initialize loss multipliers
+            self.lambda_cyc, self.lambda_enc = opt.lambda_cycle, (0 * opt.lambda_latent)
+            self.lambda_idt, self.lambda_fwd = opt.lambda_identity, opt.lambda_forward
 
         print('---------- Networks initialized -------------')
         print(self.netG)
@@ -112,21 +115,16 @@ class ComboGANModel(BaseModel):
         self.loss_D[self.DB] = self.backward_D_basic(self.real_A, fake_A, self.DA)
 
     def backward_G(self):
-        lambda_cyc = self.opt.lambda_cycle
-        lambda_idt = self.opt.lambda_identity
-        lambda_enc = self.opt.lambda_latent
-        lambda_fwd = self.opt.lambda_forward
-
         encoded_A = self.netG.encode(self.real_A, self.DA)
         encoded_B = self.netG.encode(self.real_B, self.DB)
 
         # Optional identity "autoencode" loss
-        if lambda_idt > 0:
+        if self.lambda_idt > 0:
             # Same encoder and decoder should recreate image
             idt_A = self.netG.decode(encoded_A, self.DA)
-            loss_idt_A = self.criterionIdt(idt_A, self.real_A) * lambda_idt
+            loss_idt_A = self.criterionIdt(idt_A, self.real_A)
             idt_B = self.netG.decode(encoded_B, self.DB)
-            loss_idt_B = self.criterionIdt(idt_B, self.real_B) * lambda_idt
+            loss_idt_B = self.criterionIdt(idt_B, self.real_B)
         else:
             loss_idt_A, loss_idt_B = 0, 0
 
@@ -142,29 +140,32 @@ class ComboGANModel(BaseModel):
         # Forward cycle loss
         rec_encoded_A = self.netG.encode(self.fake_B, self.DB)
         self.rec_A = self.netG.decode(rec_encoded_A, self.DA)
-        self.loss_cycle[self.DA] = self.criterionCycle(self.rec_A, self.real_A) * lambda_cyc
+        self.loss_cycle[self.DA] = self.criterionCycle(self.rec_A, self.real_A)
         # Backward cycle loss
         rec_encoded_B = self.netG.encode(self.fake_A, self.DA)
         self.rec_B = self.netG.decode(rec_encoded_B, self.DB)
-        self.loss_cycle[self.DB] = self.criterionCycle(self.rec_B, self.real_B) * lambda_cyc
+        self.loss_cycle[self.DB] = self.criterionCycle(self.rec_B, self.real_B)
 
         # Optional cycle loss on encoding space
-        if lambda_enc > 0:
-            loss_enc_A = self.criterionLatent(rec_encoded_A, encoded_A) * lambda_enc
-            loss_enc_B = self.criterionLatent(rec_encoded_B, encoded_B) * lambda_enc
+        if self.lambda_enc > 0:
+            loss_enc_A = self.criterionLatent(rec_encoded_A, encoded_A)
+            loss_enc_B = self.criterionLatent(rec_encoded_B, encoded_B)
         else:
             loss_enc_A, loss_enc_B = 0, 0
 
-        # Optional loss on image before and after
-        if lambda_fwd > 0:
-            loss_fwd_A = self.criterionIdt(self.fake_B, self.real_A) * lambda_fwd
-            loss_fwd_B = self.criterionIdt(self.fake_A, self.real_B) * lambda_fwd
+        # Optional loss on downsampled image before and after
+        if self.lambda_fwd > 0:
+            loss_fwd_A = self.criterionIdt(self.fake_B, self.real_A)
+            loss_fwd_B = self.criterionIdt(self.fake_A, self.real_B)
         else:
             loss_fwd_A, loss_fwd_B = 0, 0
 
         # combined loss
-        loss_G = self.loss_G[self.DA] + self.loss_G[self.DB] + self.loss_cycle[self.DA] + self.loss_cycle[self.DB] + \
-                 loss_idt_A + loss_idt_B + loss_enc_A + loss_enc_B + loss_fwd_A + loss_fwd_B
+        loss_G = self.loss_G[self.DA] + self.loss_G[self.DB] + \
+                 (self.loss_cycle[self.DA] + self.loss_cycle[self.DB]) * self.lambda_cyc + \
+                 (loss_idt_A + loss_idt_B) * self.lambda_idt + \
+                 (loss_enc_A + loss_enc_B) * self.lambda_enc + \
+                 (loss_fwd_A + loss_fwd_B) * self.lambda_fwd
         loss_G.backward()
 
     def optimize_parameters(self):
@@ -194,7 +195,14 @@ class ComboGANModel(BaseModel):
         self.save_network(self.netG, 'G', label, self.gpu_ids)
         self.save_network(self.netD, 'D', label, self.gpu_ids)
 
-    def update_learning_rate(self, new_lr):
-        self.netG.update_lr(new_lr)
-        self.netD.update_lr(new_lr)
-        print('updated learning rate: %f' % new_lr)
+    def update_hyperparams(self, curr_iter):
+        if curr_iter > self.opt.niter:
+            decay_frac = (curr_iter - self.opt.niter) / self.opt.niter_decay
+            new_lr = self.opt.lr * (1 - decay_frac)
+            self.netG.update_lr(new_lr)
+            self.netD.update_lr(new_lr)
+            print('updated learning rate: %f' % new_lr)
+
+        if self.opt.lambda_latent > 0:
+            decay_frac = curr_iter / (self.opt.niter + self.opt.niter_decay)
+            self.lambda_enc = self.opt.lambda_latent * decay_frac
