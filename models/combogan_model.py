@@ -38,10 +38,12 @@ class ComboGANModel(BaseModel):
         if self.isTrain:
             self.fake_pools = [ImagePool(opt.pool_size) for _ in range(self.n_domains)]
             # define loss functions
+            self.L1 = torch.nn.SmoothL1Loss()
+            self.downsample = torch.nn.AvgPool2d(3, stride=2)
+            self.criterionCycle = self.L1
+            self.criterionIdt = lambda y,t : self.L1(self.downsample(y), self.downsample(t))
+            self.criterionLatent = lambda y,t : self.L1(y, Variable(t.data, requires_grad=False))
             self.criterionGAN = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
-            self.criterionCycle = torch.nn.L1Loss()
-            self.criterionIdt = torch.nn.L1Loss()
-            self.downsample = torch.nn.AvgPool2d(3, stride=4)
             # initialize optimizers
             self.netG.init_optimizers(torch.optim.Adam, opt.lr, (opt.beta1, 0.999))
             self.netD.init_optimizers(torch.optim.Adam, opt.lr, (opt.beta1, 0.999))
@@ -121,10 +123,10 @@ class ComboGANModel(BaseModel):
         # Optional identity "autoencode" loss
         if lambda_idt > 0:
             # Same encoder and decoder should recreate image
-            self.idt_A = self.netG.decode(encoded_A, self.DA)
-            loss_idt_A = self.criterionIdt(self.idt_A, self.real_A) * lambda_idt
-            self.idt_B = self.netG.decode(encoded_B, self.DB)
-            loss_idt_B = self.criterionIdt(self.idt_B, self.real_B) * lambda_idt
+            idt_A = self.netG.decode(encoded_A, self.DA)
+            loss_idt_A = self.criterionIdt(idt_A, self.real_A) * lambda_idt
+            idt_B = self.netG.decode(encoded_B, self.DB)
+            loss_idt_B = self.criterionIdt(idt_B, self.real_B) * lambda_idt
         else:
             loss_idt_A, loss_idt_B = 0, 0
 
@@ -148,16 +150,15 @@ class ComboGANModel(BaseModel):
 
         # Optional cycle loss on encoding space
         if lambda_enc > 0:
-            copy = lambda t: Variable(t.data, requires_grad=False)
-            loss_enc_A = self.criterionCycle(rec_encoded_A, copy(encoded_A)) * lambda_enc
-            loss_enc_B = self.criterionCycle(rec_encoded_B, copy(encoded_B)) * lambda_enc
+            loss_enc_A = self.criterionLatent(rec_encoded_A, encoded_A) * lambda_enc
+            loss_enc_B = self.criterionLatent(rec_encoded_B, encoded_B) * lambda_enc
         else:
             loss_enc_A, loss_enc_B = 0, 0
 
-        # Optional loss on downsampled image before and after
+        # Optional loss on image before and after
         if lambda_fwd > 0:
-            loss_fwd_A = self.criterionIdt(self.downsample(self.fake_B), self.downsample(self.real_A)) * lambda_fwd
-            loss_fwd_B = self.criterionIdt(self.downsample(self.fake_A), self.downsample(self.real_B)) * lambda_fwd
+            loss_fwd_A = self.criterionIdt(self.fake_B, self.real_A) * lambda_fwd
+            loss_fwd_B = self.criterionIdt(self.fake_A, self.real_B) * lambda_fwd
         else:
             loss_fwd_A, loss_fwd_B = 0, 0
 
@@ -186,10 +187,6 @@ class ComboGANModel(BaseModel):
         if not testing:
             self.visuals = [self.real_A, self.fake_B, self.rec_A, self.real_B, self.fake_A, self.rec_B]
             self.labels = ['real_A', 'fake_B', 'rec_A', 'real_B', 'fake_A', 'rec_B']
-            if self.opt.lambda_identity > 0.0:
-                self.visuals += [self.idt_A, self.idt_B]
-                self.labels += ['idt_A', 'idt_B']
-
         images = [util.tensor2im(v.data) for v in self.visuals]
         return OrderedDict(zip(self.labels, images))
 
