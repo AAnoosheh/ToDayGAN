@@ -82,6 +82,8 @@ class ComboGANModel(BaseModel):
         # cache encoding to not repeat it everytime
         encoded = self.netG.encode(real, self.DA)
         for d in range(self.n_domains):
+            if d is self.DA and not self.opt.autoencode:
+                continue
             fake = self.netG.decode(encoded, d)
             self.visuals.append( fake )
             self.labels.append( 'fake_%d' % d )

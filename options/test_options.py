@@ -15,5 +15,7 @@ class TestOptions(BaseOptions):
         self.parser.add_argument('--how_many', type=int, default=50, help='how many test images to run')
         self.parser.add_argument('--serial_test', action='store_true', help='read images from test folders in sequential order')
 
-        self.parser.add_argument('--show_matrix', action='store_true', help='visualize images in a matrix format as well')
+        self.parser.add_argument('--autoencode', action='store_true', help='translate images back into its own domain')
         self.parser.add_argument('--reconstruct', action='store_true', help='do reconstructions of images during testing')
+
+        self.parser.add_argument('--show_matrix', action='store_true', help='visualize images in a matrix format as well')
