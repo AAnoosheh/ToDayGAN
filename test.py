@@ -10,7 +10,6 @@ from util import html
 opt = TestOptions().parse()
 opt.nThreads = 1   # test code only supports nThreads = 1
 opt.batchSize = 1  # test code only supports batchSize = 1
-opt.no_flip = True  # no flip
 
 dataset = DataLoader(opt)
 model = ComboGANModel(opt)
