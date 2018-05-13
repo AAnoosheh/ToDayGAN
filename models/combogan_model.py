@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 from collections import OrderedDict
-from torch.autograd import Variable
 import util.util as util
 from util.image_pool import ImagePool
 from .base_model import BaseModel
@@ -18,16 +17,15 @@ class ComboGANModel(BaseModel):
         self.n_domains = opt.n_domains
         self.DA, self.DB = None, None
 
-        self.input_A = self.Tensor(opt.batchSize, opt.input_nc, opt.fineSize, opt.fineSize)
-        self.input_B = self.Tensor(opt.batchSize, opt.output_nc, opt.fineSize, opt.fineSize)
+        self.real_A = self.Tensor(opt.batchSize, opt.input_nc, opt.fineSize, opt.fineSize)
+        self.real_B = self.Tensor(opt.batchSize, opt.output_nc, opt.fineSize, opt.fineSize)
 
         # load/define networks
         self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf,
                                       opt.netG_n_blocks, opt.netG_n_shared,
                                       self.n_domains, opt.norm, opt.use_dropout, self.gpu_ids)
         if self.isTrain:
-            blur_fn = lambda x : torch.nn.functional.conv2d(x,
-                            Variable(self.Tensor(util.gkern_2d())), groups=3, padding=2)
+            blur_fn = lambda x : torch.nn.functional.conv2d(x, self.Tensor(util.gkern_2d()), groups=3, padding=2)
             self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.netD_n_layers,
                                           self.n_domains, blur_fn, opt.norm, self.gpu_ids)
 
@@ -64,35 +62,31 @@ class ComboGANModel(BaseModel):
 
     def set_input(self, input):
         input_A = input['A']
-        self.input_A.resize_(input_A.size()).copy_(input_A)
+        self.real_A.resize_(input_A.size()).copy_(input_A)
         self.DA = input['DA'][0]
         if self.isTrain:
             input_B = input['B']
-            self.input_B.resize_(input_B.size()).copy_(input_B)
+            self.real_B.resize_(input_B.size()).copy_(input_B)
             self.DB = input['DB'][0]
         self.image_paths = input['path']
 
-    def forward(self):
-        self.real_A = Variable(self.input_A)
-        self.real_B = Variable(self.input_B)
-
     def test(self):
-        real = Variable(self.input_A, volatile=True)
-        self.visuals = [real]
-        self.labels = ['real_%d' % self.DA]
+        with torch.no_grad():
+            self.visuals = [self.real_A]
+            self.labels = ['real_%d' % self.DA]
 
-        # cache encoding to not repeat it everytime
-        encoded = self.netG.encode(real, self.DA)
-        for d in range(self.n_domains):
-            if d is self.DA and not self.opt.autoencode:
-                continue
-            fake = self.netG.decode(encoded, d)
-            self.visuals.append( fake )
-            self.labels.append( 'fake_%d' % d )
-            if self.opt.reconstruct:
-                rec = self.netG.forward(fake, d, self.DA)
-                self.visuals.append( rec )
-                self.labels.append( 'rec_%d' % d )
+            # cache encoding to not repeat it everytime
+            encoded = self.netG.encode(self.real_A, self.DA)
+            for d in range(self.n_domains):
+                if d is self.DA and not self.opt.autoencode:
+                    continue
+                fake = self.netG.decode(encoded, d)
+                self.visuals.append( fake )
+                self.labels.append( 'fake_%d' % d )
+                if self.opt.reconstruct:
+                    rec = self.netG.forward(fake, d, self.DA)
+                    self.visuals.append( rec )
+                    self.labels.append( 'rec_%d' % d )
 
     def get_image_paths(self):
         return self.image_paths
@@ -173,7 +167,6 @@ class ComboGANModel(BaseModel):
         loss_G.backward()
 
     def optimize_parameters(self):
-        self.forward()
         # G_A and G_B
         self.netG.zero_grads(self.DA, self.DB)
         self.backward_G()
@@ -184,7 +177,7 @@ class ComboGANModel(BaseModel):
         self.netD.step_grads(self.DA, self.DB)
 
     def get_current_errors(self):
-        extract = lambda l: [(i if type(i) is int or type(i) is float else i.data[0]) for i in l]
+        extract = lambda l: [(i if type(i) is int or type(i) is float else i.item()) for i in l]
         D_losses, G_losses, cyc_losses = extract(self.loss_D), extract(self.loss_G), extract(self.loss_cycle)
         return OrderedDict([('D', D_losses), ('G', G_losses), ('Cyc', cyc_losses)])
 

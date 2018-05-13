@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from torch.nn import init
 import functools, itertools
-from torch.autograd import Variable
 import numpy as np
 
 
@@ -93,10 +92,8 @@ class GANLoss(nn.Module):
 
     def get_target_tensor(self, inputs, is_real):
         if self.labels_real is None or self.labels_real[0].numel() != inputs[0].numel():
-            self.labels_real = [ Variable(self.Tensor(input.size()).fill_(1.0), requires_grad=False) \
-                                 for input in inputs ]
-            self.labels_fake = [ Variable(self.Tensor(input.size()).fill_(0.0), requires_grad=False) \
-                                 for input in inputs ]
+            self.labels_real = [ self.Tensor(input.size()).fill_(1.0) for input in inputs ]
+            self.labels_fake = [ self.Tensor(input.size()).fill_(0.0) for input in inputs ]
         if is_real:
             return self.labels_real
         return self.labels_fake
@@ -432,8 +429,7 @@ class SequentialContext(nn.Sequential):
         if self.context_var is None or self.context_var.size()[-2:] != input.size()[-2:]:
             tensor = torch.cuda.FloatTensor if isinstance(input.data, torch.cuda.FloatTensor) \
                      else torch.FloatTensor
-            context_size = (1, self.n_classes) + input.size()[-2:]
-            self.context_var = Variable(tensor(*context_size), requires_grad=False)
+            self.context_var = tensor(*((1, self.n_classes) + input.size()[-2:]))
 
         self.context_var.data.fill_(-1.0)
         self.context_var.data[:,domain,:,:] = 1.0
