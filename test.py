@@ -22,7 +22,7 @@ vis_buffer = []
 
 # test
 for i, data in enumerate(dataset):
-    if i >= opt.how_many:
+    if not opt.serial_test and i >= opt.how_many:
         break
     model.set_input(data)
     model.test()
