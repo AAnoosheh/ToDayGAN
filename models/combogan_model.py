@@ -25,9 +25,8 @@ class ComboGANModel(BaseModel):
                                       opt.netG_n_blocks, opt.netG_n_shared,
                                       self.n_domains, opt.norm, opt.use_dropout, self.gpu_ids)
         if self.isTrain:
-            blur_fn = lambda x : torch.nn.functional.conv2d(x, self.Tensor(util.gkern_2d()), groups=3, padding=2)
             self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.netD_n_layers,
-                                          self.n_domains, blur_fn, opt.norm, self.gpu_ids)
+                                          self.n_domains, self.Tensor, opt.norm, self.gpu_ids)
 
         if not self.isTrain or opt.continue_train:
             which_epoch = opt.which_epoch
@@ -43,7 +42,10 @@ class ComboGANModel(BaseModel):
             self.criterionCycle = self.L1
             self.criterionIdt = lambda y,t : self.L1(self.downsample(y), self.downsample(t))
             self.criterionLatent = lambda y,t : self.L1(y, t.detach())
-            self.criterionGAN = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
+            GANLoss1 = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
+            GANLoss2 = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
+            GANLoss3 = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
+            self.criterionGAN = lambda o,v : (GANLoss1(o[0],v) + GANLoss2(o[1],v) + GANLoss3(o[2],v)) / 3
             # initialize optimizers
             self.netG.init_optimizers(torch.optim.Adam, opt.lr, (opt.beta1, 0.999))
             self.netD.init_optimizers(torch.optim.Adam, opt.lr, (opt.beta1, 0.999))

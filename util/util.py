@@ -12,6 +12,8 @@ import collections
 def tensor2im(image_tensor, imtype=np.uint8):
     image_numpy = image_tensor[0].cpu().float().numpy()
     image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0
+    if image_numpy.shape[2] < 3:
+        image_numpy = np.dstack([image_numpy]*3)
     return image_numpy.astype(imtype)
 
 def gkern_2d(size=5, sigma=3):

@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import init
 import functools, itertools
 import numpy as np
+from util.util import gkern_2d
 
 
 
@@ -59,10 +60,10 @@ def define_G(input_nc, output_nc, ngf, n_blocks, n_blocks_shared, n_domains, nor
     return plex_netG
 
 
-def define_D(input_nc, ndf, netD_n_layers, n_domains, blur_fn, norm='batch', gpu_ids=[]):
+def define_D(input_nc, ndf, netD_n_layers, n_domains, tensor, norm='batch', gpu_ids=[]):
     norm_layer = get_norm_layer(norm_type=norm)
 
-    model_args = (input_nc, ndf, netD_n_layers, blur_fn, norm_layer, gpu_ids)
+    model_args = (input_nc, ndf, netD_n_layers, tensor, norm_layer, gpu_ids)
     plex_netD = D_Plexer(n_domains, NLayerDiscriminator, model_args)
 
     if len(gpu_ids) > 0:
@@ -247,14 +248,16 @@ class ResnetBlock(nn.Module):
 
 # Defines the PatchGAN discriminator with the specified arguments.
 class NLayerDiscriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3, blur_fn=None, norm_layer=nn.BatchNorm2d, gpu_ids=[]):
+    def __init__(self, input_nc, ndf=64, n_layers=3, tensor=torch.FloatTensor, norm_layer=nn.BatchNorm2d, gpu_ids=[]):
         super(NLayerDiscriminator, self).__init__()
         self.gpu_ids = gpu_ids
-        self.blur_fn = blur_fn
-        self.gray_fn = lambda x: (.2126*x[:,0,:,:] + .7152*x[:,1,:,:] + .0722*x[:,2,:,:])[:,None,:,:]
+        self.grad_filter = tensor([0,0,0,-1,0,1,0,0,0]).view(1,1,3,3)
+        self.dsamp_filter = tensor([1]).view(1,1,1,1)
+        self.blur_filter = tensor(gkern_2d())
 
-        self.model_gray = self.model(1, ndf, n_layers, norm_layer)
         self.model_rgb = self.model(input_nc, ndf, n_layers, norm_layer)
+        self.model_gray = self.model(1, ndf, n_layers, norm_layer)
+        self.model_grad = self.model(2, ndf, n_layers-1, norm_layer)
 
     def model(self, input_nc, ndf, n_layers, norm_layer):
         if type(norm_layer) == functools.partial:
@@ -295,15 +298,23 @@ class NLayerDiscriminator(nn.Module):
         return SequentialOutput(*sequences)
 
     def forward(self, input):
-        luminance, blurred_rgb = self.gray_fn(input), self.blur_fn(input)
+        blurred = torch.nn.functional.conv2d(input, self.blur_filter, groups=3, padding=2)
+        gray = (.299*input[:,0,:,:] + .587*input[:,1,:,:] + .114*input[:,2,:,:]).unsqueeze_(1)
+
+        gray_dsamp = nn.functional.conv2d(gray, self.dsamp_filter, stride=2)
+        dx = nn.functional.conv2d(gray_dsamp, self.grad_filter)
+        dy = nn.functional.conv2d(gray_dsamp, self.grad_filter.transpose(-2,-1))
+        gradient = torch.cat([dx,dy], 1)
 
         if len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor):
-            outs1 = nn.parallel.data_parallel(self.model_gray, luminance, self.gpu_ids)
-            outs2 = nn.parallel.data_parallel(self.model_rgb, blurred_rgb, self.gpu_ids)
+            outs1 = nn.parallel.data_parallel(self.model_rgb, blurred, self.gpu_ids)
+            outs2 = nn.parallel.data_parallel(self.model_gray, gray, self.gpu_ids)
+            outs3 = nn.parallel.data_parallel(self.model_grad, gradient, self.gpu_ids)
         else:
-            outs1 = self.model_gray(luminance)
-            outs2 = self.model_rgb(blurred_rgb)
-        return [torch.cat([o1,o2], 1) for o1,o2 in zip(outs1, outs2)]
+            outs1 = self.model_rgb(blurred)
+            outs2 = self.model_gray(gray)
+            outs3 = self.model_grad(gradient)
+        return outs1, outs2, outs3
 
 
 class Plexer(nn.Module):
