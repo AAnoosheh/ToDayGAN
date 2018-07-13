@@ -79,34 +79,18 @@ def define_D(input_nc, ndf, netD_n_layers, n_domains, tensor, norm='batch', gpu_
 ##############################################################################
 
 
-# Defines the GAN loss which uses either LSGAN or the regular GAN.
-# When LSGAN is used, it is basically same as MSELoss,
-# but it abstracts away the need to create the target label tensor
-# that has the same size as the input
-class GANLoss(nn.Module):
-    def __init__(self, use_lsgan=True, tensor=torch.FloatTensor):
-        super(GANLoss, self).__init__()
-        self.Tensor = tensor
-        self.labels_real, self.labels_fake = None, None
-        self.preloss = nn.Sigmoid() if not use_lsgan else None
-        self.loss = nn.MSELoss() if use_lsgan else nn.BCELoss()
-
-    def get_target_tensor(self, inputs, is_real):
-        if self.labels_real is None or self.labels_real[0].numel() != inputs[0].numel():
-            self.labels_real = [ self.Tensor(input.size()).fill_(1.0) for input in inputs ]
-            self.labels_fake = [ self.Tensor(input.size()).fill_(0.0) for input in inputs ]
-        if is_real:
-            return self.labels_real
-        return self.labels_fake
-
-    def __call__(self, inputs, is_real):
-        labels = self.get_target_tensor(inputs, is_real)
-        if self.preloss is not None:
-            inputs = [self.preloss(input) for input in inputs]
-        losses = [self.loss(input, label) for input, label in zip(inputs, labels)]
-        multipliers = list(range(1, len(inputs)+1));  multipliers[-1] += 1
-        losses = [m*l for m,l in zip(multipliers, losses)]
-        return sum(losses) / (sum(multipliers) * len(losses))
+# Defines the GAN loss which uses the Relativistic LSGAN
+def GANLoss(inputs_real, inputs_fake, is_discr):
+    if is_discr:
+        y = -1
+    else:
+        y = 1
+        inputs_real = [i.detach() for i in inputs_real]
+    loss = lambda r,f : torch.mean((r-f+y)**2)
+    losses = [loss(r,f) for r,f in zip(inputs_real, inputs_fake)]
+    multipliers = list(range(1, len(inputs_real)+1));  multipliers[-1] += 1
+    losses = [m*l for m,l in zip(multipliers, losses)]
+    return sum(losses) / (sum(multipliers) * len(losses))
 
 
 # Defines the generator that consists of Resnet blocks between a few

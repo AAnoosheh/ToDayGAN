@@ -25,6 +25,5 @@ class TrainOptions(BaseOptions):
         self.parser.add_argument('--display_freq', type=int, default=100, help='frequency of showing training results on screen')
         self.parser.add_argument('--print_freq', type=int, default=100, help='frequency of showing training results on console')
 
-        self.parser.add_argument('--no_lsgan', action='store_true', help='use vanilla discriminator in place of least-squares one')
         self.parser.add_argument('--pool_size', type=int, default=50, help='the size of image buffer that stores previously generated images')
         self.parser.add_argument('--no_html', action='store_true', help='do not save intermediate training results to [opt.checkpoints_dir]/[opt.name]/web/')

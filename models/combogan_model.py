@@ -42,10 +42,9 @@ class ComboGANModel(BaseModel):
             self.criterionCycle = self.L1
             self.criterionIdt = lambda y,t : self.L1(self.downsample(y), self.downsample(t))
             self.criterionLatent = lambda y,t : self.L1(y, t.detach())
-            GANLoss1 = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
-            GANLoss2 = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
-            GANLoss3 = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
-            self.criterionGAN = lambda o,v : (GANLoss1(o[0],v) + GANLoss2(o[1],v) + GANLoss3(o[2],v)) / 3
+            self.criterionGAN = lambda r,f,v : (networks.GANLoss(r[0],f[0],v) + \
+                                                networks.GANLoss(r[1],f[1],v) + \
+                                                networks.GANLoss(r[2],f[2],v)) / 3
             # initialize optimizers
             self.netG.init_optimizers(torch.optim.Adam, opt.lr, (opt.beta1, 0.999))
             self.netD.init_optimizers(torch.optim.Adam, opt.lr, (opt.beta1, 0.999))
@@ -93,26 +92,19 @@ class ComboGANModel(BaseModel):
     def get_image_paths(self):
         return self.image_paths
 
-    def backward_D_basic(self, real, fake, domain):
-        # Real
-        pred_real = self.netD.forward(real, domain)
-        loss_D_real = self.criterionGAN(pred_real, True)
-        # Fake
+    def backward_D_basic(self, pred_real, fake, domain):
         pred_fake = self.netD.forward(fake.detach(), domain)
-        loss_D_fake = self.criterionGAN(pred_fake, False)
-        # Combined loss
-        loss_D = (loss_D_real + loss_D_fake) * 0.5
-        # backward
+        loss_D = self.criterionGAN(pred_real, pred_fake, True) * 0.5
         loss_D.backward()
         return loss_D
 
     def backward_D(self):
         #D_A
         fake_B = self.fake_pools[self.DB].query(self.fake_B)
-        self.loss_D[self.DA] = self.backward_D_basic(self.real_B, fake_B, self.DB)
+        self.loss_D[self.DA] = self.backward_D_basic(self.pred_real_B, fake_B, self.DB)
         #D_B
         fake_A = self.fake_pools[self.DA].query(self.fake_A)
-        self.loss_D[self.DB] = self.backward_D_basic(self.real_A, fake_A, self.DA)
+        self.loss_D[self.DB] = self.backward_D_basic(self.pred_real_A, fake_A, self.DA)
 
     def backward_G(self):
         encoded_A = self.netG.encode(self.real_A, self.DA)
@@ -132,11 +124,11 @@ class ComboGANModel(BaseModel):
         # D_A(G_A(A))
         self.fake_B = self.netG.decode(encoded_A, self.DB)
         pred_fake = self.netD.forward(self.fake_B, self.DB)
-        self.loss_G[self.DA] = self.criterionGAN(pred_fake, True)
+        self.loss_G[self.DA] = self.criterionGAN(self.pred_real_B, pred_fake, False)
         # D_B(G_B(B))
         self.fake_A = self.netG.decode(encoded_B, self.DA)
         pred_fake = self.netD.forward(self.fake_A, self.DA)
-        self.loss_G[self.DB] = self.criterionGAN(pred_fake, True)
+        self.loss_G[self.DB] = self.criterionGAN(self.pred_real_A, pred_fake, False)
         # Forward cycle loss
         rec_encoded_A = self.netG.encode(self.fake_B, self.DB)
         self.rec_A = self.netG.decode(rec_encoded_A, self.DA)
@@ -169,6 +161,8 @@ class ComboGANModel(BaseModel):
         loss_G.backward()
 
     def optimize_parameters(self):
+        self.pred_real_A = self.netD.forward(self.real_A, self.DA)
+        self.pred_real_B = self.netD.forward(self.real_B, self.DB)
         # G_A and G_B
         self.netG.zero_grads(self.DA, self.DB)
         self.backward_G()
