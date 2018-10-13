@@ -1,10 +1,7 @@
 python train.py  \
-    --dataroot ./datasets/alps  \
-    --name alps_combogan  \
-    --continue_train  \
-    --which_epoch 117  \
-    --n_domains 4  \
-    --niter 200  \
-    --niter_decay 200  \
-    --lambda_identity 0.0  \
-    --lambda_forward 0.0
+    --continue_train  --which_epoch 30  \
+    --dataroot ./datasets/robotcar  \
+    --name robotcar_night2day  \
+    --n_domains 2  \
+    --niter 25  --niter_decay 25  \
+    --loadSize 512  --fineSize 384

@@ -50,6 +50,9 @@ cd ToDayGAN
 ### Training
 Example running scripts can be found in the `scripts` directory.
 
+One of our pretrained models for the Oxford Robotcars dataset is found [HERE](https://www.dropbox.com/s/mwqfbs19cptrej6/2DayGAN_Checkpoint150.zip?dl=0). Place under ./checkpoints/robotcar_2day and test using the instructions below, with args `--name robotcar_2day --dataroot ./datasets/<your_test_dir> --n_domains 2 --which_epoch 150 --loadSize 512`
+Because of sesitivity to instrinsic camera characteristics, testing should ideally be on the same Oxford dataset photos (and same Grasshopper camera) found [HERE](http://robotcar-dataset.robots.ox.ac.uk/datasets).
+
 - Train a model:
 ```
 python train.py --name <experiment_name> --dataroot ./datasets/<your_dataset> --n_domains <N> --niter <num_epochs_constant_LR> --niter_decay <num_epochs_decaying_LR>
@@ -61,7 +64,7 @@ python train.py --continue_train --which_epoch <checkpoint_number_to_load> --nam
 ```
 - Test the model:
 ```
-python test.py --phase test --name <experiment_name> --dataroot ./datasets/<your_dataset> --n_domains <N> --which_epoch <checkpoint_number_to_load>
+python test.py --phase test --serial_test --name <experiment_name> --dataroot ./datasets/<your_dataset> --n_domains <N> --which_epoch <checkpoint_number_to_load>
 ```
 The test results will be saved to a html file here: `./results/<experiment_name>/<epoch_number>/index.html`.
 

@@ -1,7 +1,7 @@
 python test.py  \
-    --phase test  \
-    --dataroot ./datasets/alps  \
-    --name alps_combogan  \
-    --n_domains 4  \
-    --which_epoch 400  \
-    --show_matrix
+    --phase test  --which_epoch 50  \
+    --serial_test  \
+    --dataroot ./datasets/robotcar  \
+    --name robotcar_night2day  \
+    --n_domains 2  \
+    --loadSize 512
