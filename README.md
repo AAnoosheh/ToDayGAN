@@ -29,22 +29,16 @@ In Arxiv, 2018.
 
 ## Getting Started
 ### Installation
-- Install PyTorch and dependencies from http://pytorch.org
-- Install Torch vision from the source.
+- Install requisite Python libraries.
 ```bash
-git clone https://github.com/pytorch/vision
-cd vision
-python setup.py install
-```
-- Install python libraries [visdom](https://github.com/facebookresearch/visdom) and [dominate](https://github.com/Knio/dominate).
-```bash
+pip install torch
+pip install torchvision
 pip install visdom
 pip install dominate
 ```
 - Clone this repo:
 ```bash
 git clone https://github.com/AAnoosheh/ToDayGAN.git
-cd ToDayGAN
 ```
 
 ### Training
@@ -52,6 +46,7 @@ Example running scripts can be found in the `scripts` directory.
 
 One of our pretrained models for the Oxford Robotcars dataset is found [HERE](https://www.dropbox.com/s/mwqfbs19cptrej6/2DayGAN_Checkpoint150.zip?dl=0). Place under ./checkpoints/robotcar_2day and test using the instructions below, with args `--name robotcar_2day --dataroot ./datasets/<your_test_dir> --n_domains 2 --which_epoch 150 --loadSize 512`
 Because of sesitivity to instrinsic camera characteristics, testing should ideally be on the same Oxford dataset photos (and same Grasshopper camera) found [HERE](http://robotcar-dataset.robots.ox.ac.uk/datasets).
+If using this pretrained model, `<your_test_dir>` should contain two subfolders `test0` & `test1`, containing Day and Night images to test, respectively (as mine was trained with this ordering). `test0` can be empty if you do not care about Day image translated to Night, but just needs to exist to not break the code.
 
 - Train a model:
 ```
@@ -72,7 +67,7 @@ The test results will be saved to a html file here: `./results/<experiment_name>
 
 ## Training/Testing Details
 - Flags: see `options/train_options.py` for training-specific flags; see `options/test_options.py` for test-specific flags; and see `options/base_options.py` for all common flags.
-- Dataset format: The desired data directory (provided by `--dataroot`) should contain subfolders of the form `train*/` and `test*/`, and they are loaded in alphabetical order. (Note that a folder named train10 would be loaded before train2, and thus all checkpoints and results would be ordered accordingly.)
+- Dataset format: The desired data directory (provided by `--dataroot`) should contain subfolders of the form `train*/` and `test*/`, and they are loaded in alphabetical order. (Note that a folder named train10 would be loaded before train2, and thus all checkpoints and results would be ordered accordingly.) Test directories should match alphabetical ordering of the training ones.
 - CPU/GPU (default `--gpu_ids 0`): set`--gpu_ids -1` to use CPU mode; set `--gpu_ids 0,1,2` for multi-GPU mode.
 - Visualization: during training, the current results and loss plots can be viewed using two methods. First, if you set `--display_id` > 0, the results and loss plot will appear on a local graphics web server launched by [visdom](https://github.com/facebookresearch/visdom). To do this, you should have `visdom` installed and a server running by the command `python -m visdom.server`. The default server URL is `http://localhost:8097`. `display_id` corresponds to the window ID that is displayed on the `visdom` server. The `visdom` display functionality is turned on by default. To avoid the extra overhead of communicating with `visdom` set `--display_id 0`. Secondly, the intermediate results are also saved to `./checkpoints/<experiment_name>/web/index.html`. To avoid this, set the `--no_html` flag.
 - Preprocessing: images can be resized and cropped in different ways using `--resize_or_crop` option. The default option `'resize_and_crop'` resizes the image such that the largest side becomes `opt.loadSize` and then does a random crop of size `(opt.fineSize, opt.fineSize)`. Other options are either just `resize` or `crop` on their own.
