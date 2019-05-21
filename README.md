@@ -45,7 +45,9 @@ git clone https://github.com/AAnoosheh/ToDayGAN.git
 Example running scripts can be found in the `scripts` directory.
 
 One of our pretrained models for the Oxford Robotcars dataset is found [HERE](https://www.dropbox.com/s/mwqfbs19cptrej6/2DayGAN_Checkpoint150.zip?dl=0). Place under ./checkpoints/robotcar_2day and test using the instructions below, with args `--name robotcar_2day --dataroot ./datasets/<your_test_dir> --n_domains 2 --which_epoch 150 --loadSize 512`
-Because of sesitivity to instrinsic camera characteristics, testing should ideally be on the same Oxford dataset photos (and same Grasshopper camera) found [HERE](http://robotcar-dataset.robots.ox.ac.uk/datasets).
+
+Because of sesitivity to instrinsic camera characteristics, testing should ideally be on the same Oxford dataset photos (and same Grasshopper camera) found conveniently preprocessed and ready-to-use [HERE](https://www.visuallocalization.net/datasets/).
+
 If using this pretrained model, `<your_test_dir>` should contain two subfolders `test0` & `test1`, containing Day and Night images to test, respectively (as mine was trained with this ordering). `test0` can be empty if you do not care about Day image translated to Night, but just needs to exist to not break the code.
 
 - Train a model:
